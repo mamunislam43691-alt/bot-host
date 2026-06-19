@@ -73,6 +73,15 @@ function start(bot) {
     return false;
   }
 
+  // Check if the runtime is available BEFORE spawning
+  if (typeof lang.available === 'function' && !lang.available()) {
+    const msg = bot.language === 'python'
+      ? `✕ Python is not installed on this server. The server admin must add Python to the build (see nixpacks.toml).`
+      : `✕ The ${lang.label} runtime is not available on this server.`;
+    emit(bot.id, 'system', msg);
+    return false;
+  }
+
   // Build env: process env + per-bot env
   let env = { ...process.env };
   try {
@@ -85,11 +94,11 @@ function start(bot) {
     proc = spawn(lang.binary, lang.argsFor(bot.entry_file), {
       cwd: workdir,
       env,
-      shell: process.platform === 'win32',
+      shell: true,
       windowsHide: true,
     });
   } catch (e) {
-    emit(bot.id, 'system', `Failed to spawn: ${e.message}`);
+    emit(bot.id, 'system', `✕ Failed to spawn ${lang.binary}: ${e.message}`);
     return false;
   }
 
@@ -133,7 +142,10 @@ function start(bot) {
   proc.stderr.on('data', lineBuf('stderr'));
 
   proc.on('error', (err) => {
-    emit(bot.id, 'system', `Process error: ${err.message}`);
+    const msg = err.code === 'ENOENT'
+      ? `✕ Command not found: "${lang.binary}". ${bot.language === 'python' ? 'এই সার্ভারে Python ইনস্টল নেই।' : 'Runtime missing.'}`
+      : `✕ Process error: ${err.message}`;
+    emit(bot.id, 'system', msg);
     const cur = running.get(bot.id);
     if (cur) cur.status = 'stopped';
   });
@@ -151,9 +163,22 @@ function start(bot) {
     setTimeout(() => {
       if (running.has(bot.id)) running.delete(bot.id);
     }, 3000);
-    const msg = signal
-      ? `■ Process killed by signal ${signal}`
-      : `■ Process exited with code ${code}`;
+
+    let msg;
+    if (signal) {
+      msg = `■ Process killed by signal ${signal}`;
+    } else if (code === 0) {
+      msg = `■ Process exited successfully (code 0)`;
+    } else {
+      msg = `■ Process exited with error (code ${code}).`;
+      // Helpful hints for common failure causes
+      if (bot.language === 'python' && (code === 127 || code === 1)) {
+        const hasReq = fs.existsSync(path.join(workdir, 'requirements.txt'));
+        msg += hasReq
+          ? ' সম্ভবত কোনো dependency missing বা স্ক্রিপ্টে error। লগের stderr অংশ দেখুন।'
+          : ' সম্ভবত script-এ syntax error বা missing module।';
+      }
+    }
     emit(bot.id, code === 0 ? 'system' : 'stderr', msg);
 
     // Optional auto-restart on unexpected crash (not on manual stop / SIGTERM)

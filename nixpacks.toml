@@ -1,0 +1,10 @@
+# nixpacks.toml — Railway build configuration
+# Ensures Python 3 + pip + Node.js all available so hosted bots can run.
+[phases.setup]
+nixPkgs = ['python312', 'python312Packages.pip', 'nodejs_22', 'gcc']
+
+[phases.install]
+cmds = ['npm install']
+
+[start]
+cmd = 'node server.js'

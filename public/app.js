@@ -269,12 +269,18 @@
   // ---------- Socket.IO ----------
   function setupSocket() {
     if (socket) socket.disconnect();
-    socket = io({ auth: { token }, transports: ['websocket', 'polling'] });
+    socket = io({ auth: { token }, transports: ['websocket', 'polling'], reconnection: true, reconnectionDelay: 1500 });
+
+    socket.on('connect', () => {
+      // re-subscribe to active log if any
+      if (activeLogBotId) socket.emit('subscribe', activeLogBotId);
+    });
+
     socket.on('history', ({ botId, logs }) => {
       if (activeLogBotId !== botId) return;
       const body = $('#logBody_' + botId);
       if (!body) return;
-      body.innerHTML = logs.length ? logs.map(renderLogLine).join('') : '<div class="log-empty">কোনো লগ নেই।</div>';
+      body.innerHTML = logs.length ? logs.map(renderLogLine).join('') : '<div class="log-empty">এখনো কোনো লগ নেই। বট চালু হলে এখানে আউটপুট দেখা যাবে।</div>';
       body.scrollTop = body.scrollHeight;
     });
     socket.on('log', ({ botId, stream, text, ts }) => {
@@ -302,6 +308,8 @@
       const data = await api('/api/bots');
       bots = data.bots;
       renderBots();
+      // refresh live log panel too (polling fallback in case socket misses lines)
+      if (activeLogBotId) loadLogViaHttp(activeLogBotId);
     } catch (e) {
       $('#botsArea').innerHTML = `<div class="empty-state"><div class="ic">⚠️</div><div>${escapeHtml(e.message)}</div></div>`;
     }
@@ -369,14 +377,17 @@
   }
 
   function toggleLog(botId) {
-    if (activeLogBotId === botId) {
+    const wasActive = activeLogBotId === botId;
+    if (wasActive) {
       // close
-      socket.emit('unsubscribe', botId);
+      if (socket) socket.emit('unsubscribe', botId);
       activeLogBotId = null;
     } else {
-      if (activeLogBotId) socket.emit('unsubscribe', activeLogBotId);
+      if (activeLogBotId && socket) socket.emit('unsubscribe', activeLogBotId);
       activeLogBotId = botId;
-      socket.emit('subscribe', botId);
+      // Fetch initial logs immediately via HTTP (don't wait for socket)
+      loadLogViaHttp(botId);
+      if (socket && socket.connected) socket.emit('subscribe', botId);
     }
     renderBots();
     // re-attach clear log handler
@@ -386,6 +397,23 @@
       const body = $('#logBody_' + botId);
       if (body) body.innerHTML = '<div class="log-empty">কোনো লগ নেই।</div>';
     });
+  }
+
+  // Fetch logs via HTTP and render them (used as initial load + socket fallback)
+  async function loadLogViaHttp(botId) {
+    const body = $('#logBody_' + botId);
+    if (!body) return;
+    try {
+      const data = await api('/api/bots/' + botId + '/logs?limit=200');
+      if (data.logs && data.logs.length) {
+        body.innerHTML = data.logs.map(renderLogLine).join('');
+        body.scrollTop = body.scrollHeight;
+      } else if (body.querySelector('.log-empty')?.textContent === 'কানেক্ট হচ্ছে...') {
+        body.innerHTML = '<div class="log-empty">এখনো কোনো লগ নেই। বট চালু হলে এখানে আউটপুট দেখা যাবে।</div>';
+      }
+    } catch (e) {
+      body.innerHTML = '<div class="log-empty">লগ লোড করা যায়নি: ' + escapeHtml(e.message) + '</div>';
+    }
   }
 
   async function doAction(id, action) {
@@ -549,10 +577,10 @@
     route();
   }
 
-  // poll status every 5s (refresh badges cheaply)
+  // poll status every 3s (refresh badges + logs cheaply)
   function startPolling() {
     if (pollingTimer) clearInterval(pollingTimer);
-    pollingTimer = setInterval(loadBots, 5000);
+    pollingTimer = setInterval(loadBots, 3000);
   }
 
   // ---------- Init ----------
