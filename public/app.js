@@ -140,20 +140,34 @@
         <div class="cred-banner">
           <div>
             <h3>🔑 আপনার API Key</h3>
+            <p class="muted cred-desc">এই Key দিয়ে REST API কল করে বট ম্যানেজ ও ডিপ্লয় করতে পারবেন</p>
             <div class="cred-row">
               <code id="apiKeyDisplay">...</code>
-              <button class="btn btn-sm" id="copyKey">📋</button>
+              <button class="btn btn-sm" id="copyKey" title="কপি করুন">📋 কপি</button>
             </div>
-            <button class="btn btn-sm btn-warn mt" id="regenKey">♻️ নতুন Key তৈরি</button>
+            <button class="btn btn-sm btn-ghost mt" id="regenKey" style="font-size:12px">♻️ নতুন Key তৈরি</button>
           </div>
           <div>
             <h3>🌐 Base URL</h3>
+            <p class="muted cred-desc">API কলের সময় এই URL ব্যবহার করুন (X-API-Key header সহ)</p>
             <div class="cred-row">
               <code id="baseUrlDisplay">...</code>
-              <button class="btn btn-sm" id="copyUrl">📋</button>
+              <button class="btn btn-sm" id="copyUrl" title="কপি করুন">📋 কপি</button>
             </div>
-            <div class="muted mt" style="font-size:12.5px">
-              এই URL ও API Key দিয়ে REST API কল করেও বট ডিপ্লয় করতে পারবেন।
+            <div class="cred-usage mt">
+              <div class="cred-usage-title">📊 কুইক রেফারেন্স:</div>
+              <div class="cred-example">
+                <span class="cred-label">আপলোড + স্টার্ট:</span>
+                <code>curl -H "X-API-Key: <span class="key-placeholder">KEY</span>" -F "file=@bot.py" <span class="url-placeholder">URL</span>/api/deploy</code>
+              </div>
+              <div class="cred-example">
+                <span class="cred-label">বট লিস্ট:</span>
+                <code>curl -H "X-API-Key: <span class="key-placeholder">KEY</span>" <span class="url-placeholder">URL</span>/api/bots</code>
+              </div>
+              <div class="cred-example">
+                <span class="cred-label">স্টার্ট:</span>
+                <code>curl -X POST -H "X-API-Key: <span class="key-placeholder">KEY</span>" <span class="url-placeholder">URL</span>/api/bots/BOT_ID/start</code>
+              </div>
             </div>
           </div>
         </div>
@@ -377,8 +391,11 @@
   async function doAction(id, action) {
     try {
       await api('/api/bots/' + id + '/' + action, { method: 'POST' });
-      toast(action + ' সফল হয়েছে', 'success');
+      toast(action === 'start' ? 'বট চালু হচ্ছে ▶' : action === 'stop' ? 'বট বন্ধ হচ্ছে ⏹' : 'রিস্টার্ট হচ্ছে ↻', 'success');
+      // immediate refresh + 1s later again for status confirmation
       await loadBots();
+      setTimeout(loadBots, 1000);
+      setTimeout(loadBots, 2500);
     } catch (e) { toast(e.message, 'error'); }
   }
 
@@ -415,8 +432,10 @@
       // offer to start
       if (confirm('বটটি এখন চালু করবেন?')) {
         await api('/api/bots/' + data.bot.id + '/start', { method: 'POST' });
-        toast('বট চালু হয়েছে ▶', 'success');
+        toast('বট চালু হচ্ছে ▶', 'success');
         await loadBots();
+        setTimeout(loadBots, 1000);
+        setTimeout(loadBots, 2500);
       }
     } catch (e) {
       toast(e.message, 'error');
@@ -477,48 +496,49 @@
   }
 
   function showDocs() {
+    const key = user ? user.apiKey : 'YOUR_API_KEY';
+    const url = location.origin;
     openModal(`
-      <h2>📄 REST API ডকুমেন্টেশন</h2>
-      <p class="muted" style="margin-bottom:14px;font-size:13px">সব এন্ডপয়েন্টে Header দিন: <code>X-API-Key: ${user ? user.apiKey : '&lt;key&gt;'}</code></p>
-      <div class="kv" style="font-size:12.5px">
-        <div class="k">Base URL</div><div><code>${location.origin}</code></div>
+      <h2>📡 API Key ও Base URL</h2>
+      <p class="muted" style="margin-bottom:16px;font-size:13px">
+        নিচের দুটো মান কপি করে আপনার স্ক্রিপ্ট/CI-তে ব্যবহার করুন
+      </p>
+      <div class="form-group">
+        <label>API Key (Header: X-API-Key)</label>
+        <div class="cred-row">
+          <code style="flex:1" id="modalKey">${escapeHtml(key)}</code>
+          <button class="btn btn-sm" id="modalCopyKey">📋 কপি</button>
+        </div>
       </div>
-      <pre style="background:#060912;padding:14px;border-radius:10px;overflow:auto;font-size:12px;margin-top:14px;color:#c7e8c7">${escapeHtml(docsText())}</pre>
+      <div class="form-group">
+        <label>Base URL</label>
+        <div class="cred-row">
+          <code style="flex:1" id="modalUrl">${escapeHtml(url)}</code>
+          <button class="btn btn-sm" id="modalCopyUrl">📋 কপি</button>
+        </div>
+      </div>
+      <h3 style="margin-top:18px;font-size:15px">📝 সব এন্ডপয়েন্ট</h3>
+      <div style="background:#060912;padding:14px;border-radius:10px;overflow:auto;font-size:12px;margin-top:8px;color:#c7e8c7">
+        <div><strong>POST</strong> /api/auth/register &nbsp;— রেজিস্ট্রেশন</div>
+        <div><strong>POST</strong> /api/auth/login &nbsp;&nbsp;&nbsp;— লগইন</div>
+        <div><strong>GET</strong>&nbsp;&nbsp; /api/bots &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;— বট লিস্ট</div>
+        <div><strong>POST</strong> /api/bots/upload &nbsp;&nbsp;— ফাইল আপলোড</div>
+        <div><strong>POST</strong> /api/deploy &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;— আপলোড + স্টার্ট</div>
+        <div><strong>POST</strong> /api/bots/ID/start &nbsp;— চালু</div>
+        <div><strong>POST</strong> /api/bots/ID/stop &nbsp;&nbsp;— বন্ধ</div>
+        <div><strong>POST</strong> /api/bots/ID/restart — রিস্টার্ট</div>
+        <div><strong>GET</strong>&nbsp;&nbsp; /api/bots/ID/logs &nbsp;&nbsp;— লগ দেখুন</div>
+        <div><strong>DELETE</strong> /api/bots/ID &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;— ডিলিট</div>
+      </div>
       <div class="flex" style="justify-content:flex-end;margin-top:14px">
-        <button class="btn btn-ghost" onclick="document.getElementById('modal-bg').classList.remove('open')">বন্ধ করুন</button>
+        <button class="btn btn-ghost" id="modalCloseDocs">বন্ধ করুন</button>
       </div>
     `);
+    $('#modalCopyKey').addEventListener('click', () => { navigator.clipboard.writeText(key); toast('API Key কপি হয়েছে', 'success'); });
+    $('#modalCopyUrl').addEventListener('click', () => { navigator.clipboard.writeText(url); toast('Base URL কপি হয়েছে', 'success'); });
+    $('#modalCloseDocs').addEventListener('click', closeModal);
   }
-  function docsText() {
-    return `# বট লিস্ট
-curl -H "X-API-Key: KEY" ${location.origin}/api/bots
-
-# বট আপলোড করুন
-curl -H "X-API-Key: KEY" \\
-  -F "file=@bot.py" -F "language=python" -F "name=MyBot" \\
-  ${location.origin}/api/bots/upload
-
-# এক কলে ডিপ্লয় (আপলোড + স্টার্ট)
-curl -H "X-API-Key: KEY" \\
-  -F "file=@bot.py" -F "start=1" \\
-  ${location.origin}/api/deploy
-
-# চালু / বন্ধ / রিস্টার্ট
-curl -X POST -H "X-API-Key: KEY" ${location.origin}/api/bots/BOT_ID/start
-curl -X POST -H "X-API-Key: KEY" ${location.origin}/api/bots/BOT_ID/stop
-curl -X POST -H "X-API-Key: KEY" ${location.origin}/api/bots/BOT_ID/restart
-
-# লগ
-curl -H "X-API-Key: KEY" ${location.origin}/api/bots/BOT_ID/logs
-
-# ডিলিট
-curl -X DELETE -H "X-API-Key: KEY" ${location.origin}/api/bots/BOT_ID
-
-# এনভায়রনমেন্ট ভেরিয়েবল (deploy এ পাঠান)
-curl -H "X-API-Key: KEY" \\
-  -F "file=@bot.py" -F "env_TOKEN=xxxx" \\
-  ${location.origin}/api/deploy`;
-  }
+  function docsText() { return ''; }
 
   function logout() {
     if (socket) socket.disconnect();

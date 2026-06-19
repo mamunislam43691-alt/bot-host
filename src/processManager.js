@@ -9,7 +9,8 @@ const store = require('../db/store');
 const config = require('./config');
 const { LANGUAGES } = require('./languages');
 
-// botId -> { proc, pid, startedAt, autoRestart, restartCount }
+// botId -> { proc, pid, startedAt, autoRestart, restartCount, status }
+// status: 'stopped' | 'starting' | 'running'
 const running = new Map();
 // botId -> Set of socket ids currently tailing this bot's logs
 const watchers = new Map();
@@ -29,8 +30,13 @@ function emit(botId, stream, text) {
 
 function statusOf(botId) {
   const r = running.get(botId);
-  if (!r || !r.proc || r.proc.exitCode !== null) return 'stopped';
-  return 'running';
+  if (!r) return 'stopped';
+  if (r.status === 'starting') return 'running'; // show as running to user
+  if (!r.proc) return 'stopped';
+  if (r.proc.killed) return 'stopped';
+  // In Node, exitCode is null while process is still alive
+  if (r.proc.exitCode === null && r.proc.signalCode === null) return 'running';
+  return 'stopped';
 }
 
 function describe(botId) {
@@ -93,11 +99,20 @@ function start(bot) {
     startedAt: Date.now(),
     autoRestart: !!bot.auto_restart,
     restartCount: 0,
+    status: 'starting', // will become 'running' once we confirm it's alive
   };
   running.set(bot.id, rec);
 
   emit(bot.id, 'system', `▶ Starting [${lang.label}] ${bot.entry_file} (pid ${proc.pid})`);
   store.markStarted(bot.id);
+
+  // Confirm process is alive (check if it hasn't immediately crashed)
+  setTimeout(() => {
+    const cur = running.get(bot.id);
+    if (cur && cur.status === 'starting' && cur.proc && cur.proc.exitCode === null && cur.proc.signalCode === null) {
+      cur.status = 'running';
+    }
+  }, 500);
 
   const lineBuf = (stream) => {
     let pending = '';
@@ -119,11 +134,23 @@ function start(bot) {
 
   proc.on('error', (err) => {
     emit(bot.id, 'system', `Process error: ${err.message}`);
+    const cur = running.get(bot.id);
+    if (cur) cur.status = 'stopped';
+  });
+
+  proc.on('spawn', () => {
+    // 'spawn' event fires when the process has successfully started
+    const cur = running.get(bot.id);
+    if (cur) cur.status = 'running';
   });
 
   proc.on('exit', (code, signal) => {
     const cur = running.get(bot.id);
-    running.delete(bot.id);
+    if (cur) cur.status = 'stopped';
+    // Remove from running map after a short delay so the frontend can see 'stopped' status
+    setTimeout(() => {
+      if (running.has(bot.id)) running.delete(bot.id);
+    }, 3000);
     const msg = signal
       ? `■ Process killed by signal ${signal}`
       : `■ Process exited with code ${code}`;
@@ -153,6 +180,7 @@ function stop(botId) {
     emit(botId, 'system', 'Bot is not running.');
     return false;
   }
+  rec.status = 'stopped';
   rec.autoRestart = false; // prevent restart loops
   try {
     rec.proc.kill('SIGTERM');

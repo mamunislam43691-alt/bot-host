@@ -185,8 +185,8 @@ router.patch('/:id', (req, res) => {
   const envObj = env !== undefined ? (typeof env === 'string' ? JSON.parse(env) : env) : JSON.parse(bot.env_json);
   const ar = autoRestart !== undefined ? !!autoRestart : !!bot.auto_restart;
   store.updateBotSettings(bot.id, envObj, ar);
-  if (name !== undefined) {
-    store.db.prepare('UPDATE bots SET name = ? WHERE id = ?').run(String(name).trim() || bot.name, bot.id);
+  if (name !== undefined && String(name).trim()) {
+    store.updateBotName(bot.id, String(name).trim());
   }
   res.json({ bot: publicBot(store.getBot(bot.id)) });
 });
