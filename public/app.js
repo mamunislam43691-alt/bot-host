@@ -343,6 +343,7 @@
       $('#del_' + b.id)?.addEventListener('click', () => deleteBot(b));
       $('#download_' + b.id)?.addEventListener('click', () => window.open('/api/bots/' + b.id + '/download?token=' + token, '_blank'));
       $('#settings_' + b.id)?.addEventListener('click', () => showSettings(b));
+      $('#editor_' + b.id)?.addEventListener('click', () => showEditor(b));
       $('#toggleLog_' + b.id)?.addEventListener('click', () => toggleLog(b.id));
     });
   }
@@ -368,6 +369,7 @@
             : `<button class="btn btn-sm btn-success" id="start_${b.id}">▶ চালু</button>`}
           <button class="btn btn-sm" id="restart_${b.id}">↻ রিস্টার্ট</button>
           <button class="btn btn-sm btn-ghost" id="settings_${b.id}">⚙️</button>
+          <button class="btn btn-sm btn-ghost" id="editor_${b.id}">📝 কোড</button>
           <button class="btn btn-sm btn-primary" id="download_${b.id}" title="বট ফাইল ডাউনলোড" style="padding:4px 8px">⬇️ ফাইল</button>
           <button class="btn btn-sm btn-danger" id="del_${b.id}">🗑</button>
         </div>
@@ -538,6 +540,78 @@
         await loadBots();
       } catch (e) { toast(e.message, 'error'); }
     });
+  }
+
+  async function showEditor(b) {
+    openModal(`
+      <h2>📝 কোড এডিটর — ${escapeHtml(b.name)}</h2>
+      <div style="display:flex;gap:12px;height:60vh;min-height:300px;margin-top:10px;">
+        <div style="flex:1;overflow-y:auto;background:#060912;border:1px solid var(--border);border-radius:8px;padding:8px;" id="editorFileList">
+          <div class="muted">লোড হচ্ছে...</div>
+        </div>
+        <div style="flex:2;display:flex;flex-direction:column;">
+          <input type="text" id="editorCurrentFile" readonly style="background:#060912;color:#8ba2cc;border-bottom:0;border-radius:8px 8px 0 0;font-family:monospace;font-size:12px;padding:6px 12px;margin-bottom:0;" placeholder="ফাইল সিলেক্ট করুন" />
+          <textarea id="editorContent" style="flex:1;resize:none;font-family:monospace;font-size:13px;border-radius:0 0 8px 8px;margin:0;padding:12px;white-space:pre;overflow-wrap:normal;overflow-x:auto;" placeholder="কোড এডিট করুন..." disabled></textarea>
+        </div>
+      </div>
+      <div class="flex gap" style="justify-content:flex-end;margin-top:14px;">
+        <button class="btn btn-ghost" onclick="document.getElementById('modal-bg').classList.remove('open')">বাতিল</button>
+        <button class="btn btn-primary" id="saveEditor" disabled>সেভ করুন</button>
+      </div>
+    `);
+
+    try {
+      const data = await api('/api/bots/' + b.id + '/files');
+      const list = $('#editorFileList');
+      if (!data.files || !data.files.length) {
+        list.innerHTML = '<div class="muted">কোনো ফাইল নেই</div>';
+        return;
+      }
+      
+      list.innerHTML = data.files.map(f => `<div class="editor-file-item" data-file="${escapeHtml(f)}">📄 ${escapeHtml(f)}</div>`).join('');
+      
+      let currentFile = null;
+      $$('.editor-file-item').forEach(el => {
+        el.addEventListener('click', async () => {
+          $$('.editor-file-item').forEach(e => e.classList.remove('active'));
+          el.classList.add('active');
+          currentFile = el.dataset.file;
+          $('#editorCurrentFile').value = currentFile;
+          $('#editorContent').value = 'লোড হচ্ছে...';
+          $('#editorContent').disabled = true;
+          $('#saveEditor').disabled = true;
+          try {
+            const res = await api('/api/bots/' + b.id + '/files?file=' + encodeURIComponent(currentFile));
+            $('#editorContent').value = res.content || '';
+            $('#editorContent').disabled = false;
+            $('#saveEditor').disabled = false;
+          } catch(e) {
+            $('#editorContent').value = 'Error: ' + e.message;
+          }
+        });
+      });
+
+      $('#saveEditor').addEventListener('click', async () => {
+        if (!currentFile) return;
+        const btn = $('#saveEditor');
+        btn.disabled = true;
+        btn.textContent = 'সেভ হচ্ছে...';
+        try {
+          await api('/api/bots/' + b.id + '/files', {
+            method: 'PUT',
+            body: JSON.stringify({ file: currentFile, content: $('#editorContent').value })
+          });
+          toast('ফাইল সেভ হয়েছে', 'success');
+        } catch(e) {
+          toast(e.message, 'error');
+        } finally {
+          btn.disabled = false;
+          btn.textContent = 'সেভ করুন';
+        }
+      });
+    } catch(e) {
+      $('#editorFileList').innerHTML = `<div class="error-msg">${escapeHtml(e.message)}</div>`;
+    }
   }
 
   function showDocs() {

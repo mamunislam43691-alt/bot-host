@@ -310,6 +310,59 @@ router.get('/:id/download', (req, res) => {
   archive.finalize();
 });
 
+// ---------- File Editor ----------
+router.get('/:id/files', (req, res) => {
+  const bot = store.getBot(req.params.id);
+  if (!ensureBotOwnedBy(req, res, bot)) return;
+  const wd = pm.botWorkdir(bot);
+  if (!fs.existsSync(wd)) return res.json({ files: [] });
+
+  if (req.query.file) {
+    const filePath = path.join(wd, req.query.file);
+    if (!filePath.startsWith(wd)) return res.status(403).json({ error: 'Invalid path' });
+    if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'File not found' });
+    try {
+      return res.json({ content: fs.readFileSync(filePath, 'utf8') });
+    } catch (e) {
+      return res.status(500).json({ error: 'Cannot read file' });
+    }
+  }
+
+  const allFiles = [];
+  const walk = (d, base = '') => {
+    try {
+      for (const ent of fs.readdirSync(d, { withFileTypes: true })) {
+        if (['.deps', '__pycache__', 'node_modules', '.git'].includes(ent.name)) continue;
+        const rel = base ? `${base}/${ent.name}` : ent.name;
+        if (ent.isDirectory()) walk(path.join(d, ent.name), rel);
+        else allFiles.push(rel);
+      }
+    } catch (_) {}
+  };
+  walk(wd);
+  res.json({ files: allFiles });
+});
+
+router.put('/:id/files', (req, res) => {
+  const bot = store.getBot(req.params.id);
+  if (!ensureBotOwnedBy(req, res, bot)) return;
+  const wd = pm.botWorkdir(bot);
+  const target = req.body.file;
+  const content = req.body.content || '';
+  if (!target) return res.status(400).json({ error: 'File path required' });
+  
+  const filePath = path.join(wd, target);
+  if (!filePath.startsWith(wd)) return res.status(403).json({ error: 'Invalid path' });
+  
+  try {
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(filePath, content, 'utf8');
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: 'Write failed: ' + e.message });
+  }
+});
+
 // ---------- Delete ----------
 router.delete('/:id', (req, res) => {
   const bot = store.getBot(req.params.id);
