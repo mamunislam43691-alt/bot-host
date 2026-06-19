@@ -23,18 +23,25 @@ function findPython() {
   return null;
 }
 
+function runPipInstall(workdir, argsStr) {
+  const cmds = [
+    `pip3 install ${argsStr}`,
+    `pip install ${argsStr}`,
+    `python3 -m pip install ${argsStr}`,
+    `python -m pip install ${argsStr}`
+  ];
+  const fullCmd = cmds.map(c => `(${c})`).join(' || ');
+  execSync(fullCmd, { cwd: workdir, stdio: 'pipe', timeout: 5 * 60 * 1000, shell: true });
+}
+
 // Install a list of pip packages (newline/comma separated) into a workdir.
 function installPythonPackages(workdir, depsString) {
-  const bin = findPython();
-  if (!bin) throw new Error('Python is not installed on the server');
   const pkgs = String(depsString || '')
     .split(/[\n,]/)
     .map((s) => s.trim())
     .filter(Boolean);
   if (!pkgs.length) return;
-  execFileSync(bin, ['-m', 'pip', 'install', '--target', '.deps', '--no-cache-dir', '--disable-pip-version-check', ...pkgs], {
-    cwd: workdir, stdio: 'pipe', timeout: 5 * 60 * 1000, shell: true,
-  });
+  runPipInstall(workdir, `--target .deps --no-cache-dir --disable-pip-version-check ${pkgs.join(' ')}`);
 }
 
 // Common Python imports -> PyPI package names (auto-detect missing deps).
@@ -116,13 +123,9 @@ const LANGUAGES = {
     depsFile: 'requirements.txt',
     available: () => !!findPython(),
     installDeps: (workdir) => {
-      const bin = findPython();
-      if (!bin) throw new Error('Python is not installed on the server');
       const req = path.join(workdir, 'requirements.txt');
       if (fs.existsSync(req)) {
-        execFileSync(bin, ['-m', 'pip', 'install', '--target', '.deps', '--no-cache-dir', '-r', 'requirements.txt'], {
-          cwd: workdir, stdio: 'pipe', timeout: 5 * 60 * 1000, shell: true,
-        });
+        runPipInstall(workdir, `--target .deps --no-cache-dir -r requirements.txt`);
       }
     },
   },
