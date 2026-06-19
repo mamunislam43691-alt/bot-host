@@ -143,6 +143,15 @@ label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px
 .lang-opt .ic { font-size: 26px; }
 .lang-opt .nm { font-size: 13px; font-weight: 600; margin-top: 4px; }
 
+/* ---------- Dependencies textarea ---------- */
+.deps-group { margin-top: 16px; }
+.deps-group textarea {
+  font-family: 'Cascadia Code', Consolas, monospace; font-size: 13px; resize: vertical;
+}
+.deps-group code {
+  background: rgba(99,102,241,.15); color: #c7d2fe; padding: 1px 6px; border-radius: 4px;
+}
+
 /* ---------- Bot cards grid ---------- */
 .bot-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 16px; }
 .bot-card {

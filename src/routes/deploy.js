@@ -20,7 +20,7 @@ const unzipper = require('unzipper');
 const store = require('../../db/store');
 const config = require('../config');
 const pm = require('../processManager');
-const { LANGUAGES, detectLanguage } = require('../languages');
+const { LANGUAGES, detectLanguage, installPythonPackages, autoDetectDeps } = require('../languages');
 
 const router = express.Router();
 const upload = multer({
@@ -97,11 +97,35 @@ router.post('/', upload.single('file'), async (req, res) => {
     }
     fs.rmSync(req.file.path, { force: true });
 
-    // Install deps
+    // ---------- Install dependencies ----------
+    const requirements = (req.body.requirements || '').trim();
     const lang = LANGUAGES[finalLanguage];
-    if (lang && lang.installDeps) {
-      try { lang.installDeps(botWorkdir); } catch (e) {
-        pm.emit(botId, 'system', `Dependency install warning: ${e.message}`);
+    if (lang) {
+      if (requirements && finalLanguage === 'python') {
+        try {
+          pm.emit(botId, 'system', `📦 Installing dependencies: ${requirements.replace(/\n/g, ', ')}`);
+          installPythonPackages(botWorkdir, requirements);
+          pm.emit(botId, 'system', '✓ Dependencies installed.');
+        } catch (e) {
+          pm.emit(botId, 'system', `⚠ Dependency install warning: ${e.message}`);
+        }
+      } else if (lang.installDeps) {
+        try { lang.installDeps(botWorkdir); } catch (e) {
+          pm.emit(botId, 'system', `⚠ Dependency install warning: ${e.message}`);
+        }
+      }
+      // Auto-detect missing Python imports
+      if (finalLanguage === 'python') {
+        try {
+          const detected = autoDetectDeps(entryFile, botWorkdir);
+          if (detected.length) {
+            pm.emit(botId, 'system', `🔍 Auto-detected imports: ${detected.join(', ')}`);
+            installPythonPackages(botWorkdir, detected.join('\n'));
+            pm.emit(botId, 'system', '✓ Auto-detected dependencies installed.');
+          }
+        } catch (e) {
+          pm.emit(botId, 'system', `⚠ Auto-detect install warning: ${e.message}`);
+        }
       }
     }
 

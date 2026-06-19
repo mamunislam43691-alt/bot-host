@@ -196,6 +196,14 @@
             <input type="file" id="fileInput" hidden />
           </div>
 
+          <div class="deps-group" id="depsGroup">
+            <label>📦 Dependencies / requirements.txt <span class="muted" style="font-weight:normal">(ঐচ্ছিক — প্রতি লাইনে একটা প্যাকেজ)</span></label>
+            <textarea id="botRequirements" rows="3" placeholder="pyTelegramBotAPI&#10;requests&#10;aiohttp"></textarea>
+            <div class="muted" style="font-size:11.5px;margin-top:4px">
+              ℹ️ খালি রাখলে সিস্টেম আপনার স্ক্রিপ্টের <code style="font-size:10.5px">import</code> থেকে সাধারণ প্যাকেজ অটো-ইনস্টল করবে। যেমন <code style="font-size:10.5px">import telebot</code> → pyTelegramBotAPI
+            </div>
+          </div>
+
           <div class="flex gap mt" style="align-items:center;flex-wrap:wrap">
             <label style="display:flex;align-items:center;gap:6px;margin:0;cursor:pointer;color:var(--text)">
               <input type="checkbox" id="autoRestart" style="width:auto" /> ক্র্যাশ হলে অটো-রিস্টার্ট
@@ -448,12 +456,15 @@
       fd.append('name', $('#botName').value.trim() || selectedFile.name);
       fd.append('language', selectedLanguage);
       fd.append('autoRestart', $('#autoRestart').checked ? '1' : '0');
+      const reqs = $('#botRequirements')?.value.trim();
+      if (reqs) fd.append('requirements', reqs);
       const data = await api('/api/bots/upload', { method: 'POST', body: fd });
       toast('বট আপলোড হয়েছে!', 'success');
       // reset form
       selectedFile = null;
       $('#fileName').textContent = '';
       $('#botName').value = '';
+      if ($('#botRequirements')) $('#botRequirements').value = '';
       $('#fileInput').value = '';
       $('#uploadBtn').disabled = true;
       await loadBots();
