@@ -316,8 +316,7 @@
       const data = await api('/api/bots');
       bots = data.bots;
       renderBots();
-      // refresh live log panel too (polling fallback in case socket misses lines)
-      if (activeLogBotId) loadLogViaHttp(activeLogBotId);
+      // polling fallback removed to prevent socket log flickering
     } catch (e) {
       $('#botsArea').innerHTML = `<div class="empty-state"><div class="ic">⚠️</div><div>${escapeHtml(e.message)}</div></div>`;
     }
@@ -342,6 +341,7 @@
       $('#stop_' + b.id)?.addEventListener('click', () => doAction(b.id, 'stop'));
       $('#restart_' + b.id)?.addEventListener('click', () => doAction(b.id, 'restart'));
       $('#del_' + b.id)?.addEventListener('click', () => deleteBot(b));
+      $('#download_' + b.id)?.addEventListener('click', () => window.open('/api/bots/' + b.id + '/download?token=' + token, '_blank'));
       $('#settings_' + b.id)?.addEventListener('click', () => showSettings(b));
       $('#toggleLog_' + b.id)?.addEventListener('click', () => toggleLog(b.id));
     });
@@ -368,6 +368,7 @@
             : `<button class="btn btn-sm btn-success" id="start_${b.id}">▶ চালু</button>`}
           <button class="btn btn-sm" id="restart_${b.id}">↻ রিস্টার্ট</button>
           <button class="btn btn-sm btn-ghost" id="settings_${b.id}">⚙️</button>
+          <button class="btn btn-sm btn-primary" id="download_${b.id}" title="বট ফাইল ডাউনলোড" style="padding:4px 8px">⬇️ ফাইল</button>
           <button class="btn btn-sm btn-danger" id="del_${b.id}">🗑</button>
         </div>
         <button class="btn btn-sm btn-ghost mt" id="toggleLog_${b.id}" style="width:100%;justify-content:center">
@@ -377,7 +378,10 @@
           <div class="log-panel">
             <div class="log-head between">
               <span>লাইভ কনসোল — ${escapeHtml(b.name)}</span>
-              <button class="btn btn-sm btn-ghost" id="clearLog_${b.id}">🧹 মুছুন</button>
+              <div style="display:flex;gap:4px">
+                <button class="btn btn-sm btn-ghost" id="downloadLog_${b.id}" title="সম্পূর্ণ লগ ডাউনলোড">⬇️ লগ</button>
+                <button class="btn btn-sm btn-ghost" id="clearLog_${b.id}">🧹 মুছুন</button>
+              </div>
             </div>
             <div class="log-body" id="logBody_${b.id}"><div class="log-empty">কানেক্ট হচ্ছে...</div></div>
           </div>` : ''}
@@ -398,13 +402,15 @@
       if (socket && socket.connected) socket.emit('subscribe', botId);
     }
     renderBots();
-    // re-attach clear log handler
+    // re-attach clear/download log handler
     const clear = $('#clearLog_' + botId);
     if (clear) clear.addEventListener('click', async () => {
       try { await api('/api/bots/' + botId + '/logs', { method: 'DELETE' }); } catch (e) {}
       const body = $('#logBody_' + botId);
       if (body) body.innerHTML = '<div class="log-empty">কোনো লগ নেই।</div>';
     });
+    const dlLog = $('#downloadLog_' + botId);
+    if (dlLog) dlLog.addEventListener('click', () => window.open('/api/bots/' + botId + '/logs/download?token=' + token, '_blank'));
   }
 
   // Fetch logs via HTTP and render them (used as initial load + socket fallback)
@@ -412,7 +418,7 @@
     const body = $('#logBody_' + botId);
     if (!body) return;
     try {
-      const data = await api('/api/bots/' + botId + '/logs?limit=200');
+      const data = await api('/api/bots/' + botId + '/logs?limit=5000');
       if (data.logs && data.logs.length) {
         body.innerHTML = data.logs.map(renderLogLine).join('');
         body.scrollTop = body.scrollHeight;

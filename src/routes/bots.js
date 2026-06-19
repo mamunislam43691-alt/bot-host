@@ -4,6 +4,7 @@ const path = require('path');
 const fs = require('fs');
 const multer = require('multer');
 const unzipper = require('unzipper');
+const archiver = require('archiver');
 
 const store = require('../../db/store');
 const config = require('../config');
@@ -246,8 +247,33 @@ router.get('/:id/logs', (req, res) => {
   const bot = store.getBot(req.params.id);
   if (!ensureBotOwnedBy(req, res, bot)) return;
   const afterId = parseInt(req.query.after || '0', 10) || 0;
-  const limit = Math.min(parseInt(req.query.limit || '500', 10) || 500, 5000);
+  const limit = Math.min(parseInt(req.query.limit || '500', 10) || 500, 10000);
   res.json({ logs: store.getLogs(bot.id, afterId, limit) });
+});
+
+router.get('/:id/logs/download', (req, res) => {
+  // Allow token via query for direct window.open access
+  if (req.query.token && !req.user) {
+    const jwt = require('jsonwebtoken');
+    try {
+      const payload = jwt.verify(req.query.token, config.jwtSecret);
+      req.user = store.getUserById(payload.sub);
+    } catch (e) {
+      return res.status(401).send('Unauthorized');
+    }
+  }
+  const bot = store.getBot(req.params.id);
+  if (!ensureBotOwnedBy(req, res, bot)) return;
+
+  const logs = store.getLogs(bot.id, 0, 10000);
+  const text = logs.map((l) => {
+    const t = new Date(l.ts).toISOString().replace('T', ' ').substring(0, 19);
+    return `[${t}] ${l.text}`;
+  }).join('\n');
+
+  res.setHeader('Content-disposition', `attachment; filename=logs-${bot.name.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.txt`);
+  res.setHeader('Content-type', 'text/plain');
+  res.send(text);
 });
 
 router.delete('/:id/logs', (req, res) => {
@@ -255,6 +281,33 @@ router.delete('/:id/logs', (req, res) => {
   if (!ensureBotOwnedBy(req, res, bot)) return;
   store.clearLogs(bot.id);
   res.json({ ok: true });
+});
+
+// ---------- Download Bot Files ----------
+router.get('/:id/download', (req, res) => {
+  if (req.query.token && !req.user) {
+    const jwt = require('jsonwebtoken');
+    try {
+      const payload = jwt.verify(req.query.token, config.jwtSecret);
+      req.user = store.getUserById(payload.sub);
+    } catch (e) {
+      return res.status(401).send('Unauthorized');
+    }
+  }
+  const bot = store.getBot(req.params.id);
+  if (!ensureBotOwnedBy(req, res, bot)) return;
+
+  const wd = pm.botWorkdir(bot);
+  if (!fs.existsSync(wd)) return res.status(404).send('Bot files not found');
+
+  res.setHeader('Content-disposition', `attachment; filename=bot-${bot.name.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.zip`);
+  res.setHeader('Content-type', 'application/zip');
+
+  const archive = archiver('zip', { zlib: { level: 9 } });
+  archive.on('error', (err) => res.status(500).send({ error: err.message }));
+  archive.pipe(res);
+  archive.directory(wd, false);
+  archive.finalize();
 });
 
 // ---------- Delete ----------

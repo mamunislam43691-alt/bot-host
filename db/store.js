@@ -16,7 +16,7 @@ const DATA_DIR = process.env.DATA_DIR
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
 const DB_FILE = path.join(DATA_DIR, 'db.json');
-const LOG_BUFFER_LIMIT = parseInt(process.env.LOG_BUFFER_LIMIT || '1000', 10);
+const LOG_BUFFER_LIMIT = parseInt(process.env.LOG_BUFFER_LIMIT || '10000', 10);
 
 // ---------- In-memory store ----------
 let users = [];        // [{id, username, password_hash, api_key, is_admin, created_at}]
