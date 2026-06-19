@@ -128,6 +128,12 @@ function start(bot, isAutoRestart = false) {
     env = { ...env, ...extra };
   } catch (_) { /* ignore malformed */ }
 
+  if (bot.language === 'python') {
+    env.PYTHONPATH = env.PYTHONPATH
+      ? `${path.join(workdir, '.deps')}${path.delimiter}${env.PYTHONPATH}`
+      : path.join(workdir, '.deps');
+  }
+
   let proc;
   try {
     proc = spawn(lang.binary, lang.argsFor(bot.entry_file), {

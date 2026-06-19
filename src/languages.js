@@ -32,7 +32,7 @@ function installPythonPackages(workdir, depsString) {
     .map((s) => s.trim())
     .filter(Boolean);
   if (!pkgs.length) return;
-  execFileSync(bin, ['-m', 'pip', 'install', '--no-cache-dir', '--disable-pip-version-check', ...pkgs], {
+  execFileSync(bin, ['-m', 'pip', 'install', '--target', '.deps', '--no-cache-dir', '--disable-pip-version-check', ...pkgs], {
     cwd: workdir, stdio: 'pipe', timeout: 5 * 60 * 1000, shell: true,
   });
 }
@@ -120,7 +120,7 @@ const LANGUAGES = {
       if (!bin) throw new Error('Python is not installed on the server');
       const req = path.join(workdir, 'requirements.txt');
       if (fs.existsSync(req)) {
-        execFileSync(bin, ['-m', 'pip', 'install', '--no-cache-dir', '-r', 'requirements.txt'], {
+        execFileSync(bin, ['-m', 'pip', 'install', '--target', '.deps', '--no-cache-dir', '-r', 'requirements.txt'], {
           cwd: workdir, stdio: 'pipe', timeout: 5 * 60 * 1000, shell: true,
         });
       }
