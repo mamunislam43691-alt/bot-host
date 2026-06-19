@@ -7,7 +7,11 @@ const path = require('path');
 const fs = require('fs');
 const store = require('../db/store');
 const config = require('./config');
-const { LANGUAGES } = require('./languages');
+const { LANGUAGES, autoDetectDeps, installPythonPackages } = require('./languages');
+
+// Track bots whose deps are already installed this server lifetime,
+// so we don't reinstall on every restart.
+const depsInstalled = new Set();
 
 // botId -> { proc, pid, startedAt, autoRestart, restartCount, status }
 // status: 'stopped' | 'starting' | 'running'
@@ -49,11 +53,16 @@ function describe(botId) {
   };
 }
 
-function start(bot) {
+function start(bot, isAutoRestart = false) {
   // already running?
   if (statusOf(bot.id) === 'running') {
     emit(bot.id, 'system', 'Bot is already running.');
     return false;
+  }
+
+  // On manual start/restart, re-check dependencies.
+  if (!isAutoRestart) {
+    depsInstalled.delete(bot.id);
   }
 
   const workdir = botWorkdir(bot);
@@ -80,6 +89,36 @@ function start(bot) {
       : `✕ The ${lang.label} runtime is not available on this server.`;
     emit(bot.id, 'system', msg);
     return false;
+  }
+
+  // ---------- Ensure dependencies are installed (covers older bots too) ----------
+  // We run this once per bot per server lifetime (cached via depsInstalled set).
+  if (!depsInstalled.has(bot.id)) {
+    try {
+      if (bot.language === 'python') {
+        // 1) requirements.txt inside the bot folder
+        const reqFile = path.join(workdir, 'requirements.txt');
+        if (fs.existsSync(reqFile)) {
+          emit(bot.id, 'system', `📦 Installing requirements.txt...`);
+          installPythonPackages(workdir, fs.readFileSync(reqFile, 'utf8'));
+          emit(bot.id, 'system', '✓ requirements.txt installed.');
+        }
+        // 2) auto-detect imports from the entry file
+        const detected = autoDetectDeps(bot.entry_file, workdir);
+        if (detected.length) {
+          emit(bot.id, 'system', `🔍 Auto-detected imports: ${detected.join(', ')}`);
+          installPythonPackages(workdir, detected.join('\n'));
+          emit(bot.id, 'system', '✓ Auto-detected dependencies installed.');
+        }
+      } else if (lang.installDeps) {
+        lang.installDeps(workdir);
+      }
+      depsInstalled.add(bot.id);
+    } catch (e) {
+      emit(bot.id, 'system', `⚠ Dependency install warning: ${e.message}`);
+      // mark as attempted so we don't loop forever on broken deps
+      depsInstalled.add(bot.id);
+    }
   }
 
   // Build env: process env + per-bot env
@@ -188,7 +227,7 @@ function start(bot) {
         emit(bot.id, 'system', `↻ Auto-restarting in 3s (attempt ${cur.restartCount}/5)...`);
         setTimeout(() => {
           const fresh = store.getBot(bot.id);
-          if (fresh) start(fresh);
+          if (fresh) start(fresh, true);
         }, 3000);
       } else {
         emit(bot.id, 'system', '✕ Max auto-restart attempts reached. Stopping.');
