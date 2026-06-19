@@ -323,6 +323,17 @@
   }
 
   function renderBots() {
+    // Preserve existing log content before re-rendering
+    let preservedLogHtml = null;
+    let preservedScroll = 0;
+    if (activeLogBotId) {
+      const existingBody = $('#logBody_' + activeLogBotId);
+      if (existingBody) {
+        preservedLogHtml = existingBody.innerHTML;
+        preservedScroll = existingBody.scrollTop;
+      }
+    }
+
     $('#botCount').textContent = bots.length;
     const area = $('#botsArea');
     if (!bots.length) {
@@ -335,6 +346,15 @@
       return;
     }
     area.innerHTML = '<div class="bot-grid">' + bots.map(renderBotCard).join('') + '</div>';
+    
+    // Restore preserved log content
+    if (activeLogBotId && preservedLogHtml) {
+      const restoredBody = $('#logBody_' + activeLogBotId);
+      if (restoredBody) {
+        restoredBody.innerHTML = preservedLogHtml;
+        restoredBody.scrollTop = preservedScroll;
+      }
+    }
     // attach handlers
     bots.forEach((b) => {
       $('#start_' + b.id)?.addEventListener('click', () => doAction(b.id, 'start'));
@@ -399,11 +419,12 @@
     } else {
       if (activeLogBotId && socket) socket.emit('unsubscribe', activeLogBotId);
       activeLogBotId = botId;
-      // Fetch initial logs immediately via HTTP (don't wait for socket)
-      loadLogViaHttp(botId);
       if (socket && socket.connected) socket.emit('subscribe', botId);
     }
     renderBots();
+    if (activeLogBotId === botId) {
+      loadLogViaHttp(botId);
+    }
     // re-attach clear/download log handler
     const clear = $('#clearLog_' + botId);
     if (clear) clear.addEventListener('click', async () => {
@@ -417,10 +438,10 @@
 
   // Fetch logs via HTTP and render them (used as initial load + socket fallback)
   async function loadLogViaHttp(botId) {
-    const body = $('#logBody_' + botId);
-    if (!body) return;
     try {
       const data = await api('/api/bots/' + botId + '/logs?limit=5000');
+      const body = $('#logBody_' + botId);
+      if (!body) return;
       if (data.logs && data.logs.length) {
         body.innerHTML = data.logs.map(renderLogLine).join('');
         body.scrollTop = body.scrollHeight;
@@ -428,7 +449,8 @@
         body.innerHTML = '<div class="log-empty">এখনো কোনো লগ নেই। বট চালু হলে এখানে আউটপুট দেখা যাবে।</div>';
       }
     } catch (e) {
-      body.innerHTML = '<div class="log-empty">লগ লোড করা যায়নি: ' + escapeHtml(e.message) + '</div>';
+      const body = $('#logBody_' + botId);
+      if (body) body.innerHTML = '<div class="log-empty">লগ লোড করা যায়নি: ' + escapeHtml(e.message) + '</div>';
     }
   }
 
