@@ -23,7 +23,7 @@
     if (token) headers['Authorization'] = 'Bearer ' + token;
     const res = await fetch(path, { ...opts, headers });
     let data = {};
-    try { data = await res.json(); } catch (_) {}
+    try { data = await res.json(); } catch (_) { }
     if (!res.ok) throw new Error(data.error || ('HTTP ' + res.status));
     return data;
   }
@@ -269,6 +269,45 @@
     });
     $('#regenKey').addEventListener('click', regenerateKey);
 
+    // Event delegation for bot actions (start/stop/restart/delete/download/settings/editor/toggleLog)
+    $('#botsArea').addEventListener('click', (e) => {
+      const btn = e.target.closest('button');
+      if (!btn) return;
+
+      const id = btn.id;
+      if (!id) return;
+
+      const match = id.match(/^(start|stop|restart|del|download|settings|editor|toggleLog|downloadLog|clearLog)_(.+)$/);
+      if (!match) return;
+
+      const [, action, botId] = match;
+
+      if (action === 'start' || action === 'stop' || action === 'restart') {
+        doAction(botId, action);
+      } else if (action === 'del') {
+        const bot = bots.find(b => b.id === botId);
+        if (bot) deleteBot(bot);
+      } else if (action === 'download') {
+        window.open('/api/bots/' + botId + '/download?token=' + token, '_blank');
+      } else if (action === 'settings') {
+        const bot = bots.find(b => b.id === botId);
+        if (bot) showSettings(bot);
+      } else if (action === 'editor') {
+        const bot = bots.find(b => b.id === botId);
+        if (bot) showEditor(bot);
+      } else if (action === 'toggleLog') {
+        toggleLog(botId);
+      } else if (action === 'downloadLog') {
+        window.open('/api/bots/' + botId + '/logs/download?token=' + token, '_blank');
+      } else if (action === 'clearLog') {
+        (async () => {
+          try { await api('/api/bots/' + botId + '/logs', { method: 'DELETE' }); } catch (e) { }
+          const body = $('#logBody_' + botId);
+          if (body) body.innerHTML = '<div class="log-empty">কোনো লগ নেই।</div>';
+        })();
+      }
+    });
+
     setupSocket();
     loadBots();
     startPolling();
@@ -346,7 +385,7 @@
       return;
     }
     area.innerHTML = '<div class="bot-grid">' + bots.map(renderBotCard).join('') + '</div>';
-    
+
     // Restore preserved log content
     if (activeLogBotId && preservedLogHtml) {
       const restoredBody = $('#logBody_' + activeLogBotId);
@@ -355,17 +394,6 @@
         restoredBody.scrollTop = preservedScroll;
       }
     }
-    // attach handlers
-    bots.forEach((b) => {
-      $('#start_' + b.id)?.addEventListener('click', () => doAction(b.id, 'start'));
-      $('#stop_' + b.id)?.addEventListener('click', () => doAction(b.id, 'stop'));
-      $('#restart_' + b.id)?.addEventListener('click', () => doAction(b.id, 'restart'));
-      $('#del_' + b.id)?.addEventListener('click', () => deleteBot(b));
-      $('#download_' + b.id)?.addEventListener('click', () => window.open('/api/bots/' + b.id + '/download?token=' + token, '_blank'));
-      $('#settings_' + b.id)?.addEventListener('click', () => showSettings(b));
-      $('#editor_' + b.id)?.addEventListener('click', () => showEditor(b));
-      $('#toggleLog_' + b.id)?.addEventListener('click', () => toggleLog(b.id));
-    });
   }
 
   function renderBotCard(b) {
@@ -385,8 +413,8 @@
         </div>
         <div class="bot-actions">
           ${running
-            ? `<button class="btn btn-sm btn-warn" id="stop_${b.id}">⏹ বন্ধ</button>`
-            : `<button class="btn btn-sm btn-success" id="start_${b.id}">▶ চালু</button>`}
+        ? `<button class="btn btn-sm btn-warn" id="stop_${b.id}">⏹ বন্ধ</button>`
+        : `<button class="btn btn-sm btn-success" id="start_${b.id}">▶ চালু</button>`}
           <button class="btn btn-sm" id="restart_${b.id}">↻ রিস্টার্ট</button>
           <button class="btn btn-sm btn-ghost" id="settings_${b.id}">⚙️</button>
           <button class="btn btn-sm btn-ghost" id="editor_${b.id}">📝 কোড</button>
@@ -425,15 +453,6 @@
     if (activeLogBotId === botId) {
       loadLogViaHttp(botId);
     }
-    // re-attach clear/download log handler
-    const clear = $('#clearLog_' + botId);
-    if (clear) clear.addEventListener('click', async () => {
-      try { await api('/api/bots/' + botId + '/logs', { method: 'DELETE' }); } catch (e) {}
-      const body = $('#logBody_' + botId);
-      if (body) body.innerHTML = '<div class="log-empty">কোনো লগ নেই।</div>';
-    });
-    const dlLog = $('#downloadLog_' + botId);
-    if (dlLog) dlLog.addEventListener('click', () => window.open('/api/bots/' + botId + '/logs/download?token=' + token, '_blank'));
   }
 
   // Fetch logs via HTTP and render them (used as initial load + socket fallback)
@@ -589,9 +608,9 @@
         list.innerHTML = '<div class="muted">কোনো ফাইল নেই</div>';
         return;
       }
-      
+
       list.innerHTML = data.files.map(f => `<div class="editor-file-item" data-file="${escapeHtml(f)}">📄 ${escapeHtml(f)}</div>`).join('');
-      
+
       let currentFile = null;
       $$('.editor-file-item').forEach(el => {
         el.addEventListener('click', async () => {
@@ -607,7 +626,7 @@
             $('#editorContent').value = res.content || '';
             $('#editorContent').disabled = false;
             $('#saveEditor').disabled = false;
-          } catch(e) {
+          } catch (e) {
             $('#editorContent').value = 'Error: ' + e.message;
           }
         });
@@ -624,14 +643,14 @@
             body: JSON.stringify({ file: currentFile, content: $('#editorContent').value })
           });
           toast('ফাইল সেভ হয়েছে', 'success');
-        } catch(e) {
+        } catch (e) {
           toast(e.message, 'error');
         } finally {
           btn.disabled = false;
           btn.textContent = 'সেভ করুন';
         }
       });
-    } catch(e) {
+    } catch (e) {
       $('#editorFileList').innerHTML = `<div class="error-msg">${escapeHtml(e.message)}</div>`;
     }
   }
