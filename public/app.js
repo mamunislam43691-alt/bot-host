@@ -330,20 +330,84 @@
       body.innerHTML = logs.length ? logs.map(renderLogLine).join('') : '<div class="log-empty">এখনো কোনো লগ নেই। বট চালু হলে এখানে আউটপুট দেখা যাবে।</div>';
       body.scrollTop = body.scrollHeight;
     });
+
     socket.on('log', ({ botId, stream, text, ts }) => {
-      if (activeLogBotId !== botId) return;
-      const body = $('#logBody_' + botId);
-      if (!body) return;
-      // remove empty placeholder
-      const empty = body.querySelector('.log-empty');
-      if (empty) empty.remove();
-      body.insertAdjacentHTML('beforeend', renderLogLine({ stream, text, ts }));
-      body.scrollTop = body.scrollHeight;
+      // লগ লাইন যোগ করো
+      if (activeLogBotId === botId) {
+        const body = $('#logBody_' + botId);
+        if (body) {
+          const empty = body.querySelector('.log-empty');
+          if (empty) empty.remove();
+          body.insertAdjacentHTML('beforeend', renderLogLine({ stream, text, ts }));
+          body.scrollTop = body.scrollHeight;
+        }
+      }
+    });
+
+    // বট status পরিবর্তন হলে সাথে সাথে UI আপডেট করো
+    socket.on('status', ({ botId, status, pid, startedAt, restartCount }) => {
+      const bot = bots.find(b => b.id === botId);
+      if (!bot) return;
+      const changed = bot.status !== status || bot.pid !== pid;
+      if (!changed) return;
+      bot.status = status;
+      bot.pid = pid;
+      bot.startedAt = startedAt;
+      bot.restartCount = restartCount || 0;
+      updateBotCardStatus(botId, bot);
     });
   }
+
+  // DOM ইনপ্লেসে badge + বোতাম আপডেট করো (পুরো re-render না করে)
+  function updateBotCardStatus(botId, bot) {
+    const running = bot.status === 'running';
+
+    // badge আপডেট
+    const badge = document.querySelector(`.bot-card [id$="_${botId}"]`)?.closest('.bot-card')?.querySelector('.badge');
+    if (badge) {
+      badge.className = `badge ${running ? 'running' : 'stopped'}`;
+      badge.innerHTML = `<span class="dot"></span>${running ? 'চলছে' : 'বন্ধ'}`;
+    }
+
+    // meta (PID / restart count) আপডেট
+    const meta = document.querySelector(`.bot-card [id$="_${botId}"]`)?.closest('.bot-card')?.querySelector('.meta');
+    if (meta && bot.entryFile) {
+      const langIcon = { python: '🐍', node: '🟢', bash: '💻' }[bot.language] || '📜';
+      meta.innerHTML = `${bot.language} · ${escapeHtml(bot.entryFile)}<br>${bot.pid ? `PID: ${bot.pid} · ` : ''}রিস্টার্ট: ${bot.restartCount || 0}`;
+    }
+
+    // start/stop বোতাম swap করো
+    const actions = document.querySelector(`#stop_${botId}, #start_${botId}`)?.parentElement;
+    if (actions) {
+      const oldBtn = actions.querySelector(`#stop_${botId}, #start_${botId}`);
+      if (oldBtn) {
+        const newBtn = document.createElement('button');
+        if (running) {
+          newBtn.className = 'btn btn-sm btn-warn';
+          newBtn.id = `stop_${botId}`;
+          newBtn.innerHTML = '⏹ বন্ধ';
+        } else {
+          newBtn.className = 'btn btn-sm btn-success';
+          newBtn.id = `start_${botId}`;
+          newBtn.innerHTML = '▶ চালু';
+        }
+        actions.replaceChild(newBtn, oldBtn);
+      }
+    }
+  }
+
   function renderLogLine(l) {
     const t = new Date(l.ts).toLocaleTimeString();
-    return `<div class="log-line ${l.stream}"><span class="ts">${t}</span>${escapeHtml(l.text)}</div>`;
+    // system লাইনের জন্য বিশেষ আইকন
+    let prefix = '';
+    if (l.stream === 'system') {
+      const txt = l.text || '';
+      if (txt.startsWith('▶') || txt.startsWith('✓')) prefix = '';
+      else if (txt.startsWith('⏹') || txt.startsWith('■')) prefix = '';
+      else if (txt.startsWith('↻')) prefix = '';
+      else if (txt.startsWith('✕') || txt.startsWith('⚠')) prefix = '';
+    }
+    return `<div class="log-line ${escapeHtml(l.stream)}"><span class="ts">${t}</span>${prefix}${escapeHtml(l.text)}</div>`;
   }
   function escapeHtml(s) {
     return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -474,14 +538,36 @@
   }
 
   async function doAction(id, action) {
+    // বোতাম খুঁজে disable করো
+    const btn = document.getElementById(`${action}_${id}`);
+    if (btn) { btn.disabled = true; btn.style.opacity = '0.6'; }
+
     try {
       await api('/api/bots/' + id + '/' + action, { method: 'POST' });
-      toast(action === 'start' ? 'বট চালু হচ্ছে ▶' : action === 'stop' ? 'বট বন্ধ হচ্ছে ⏹' : 'রিস্টার্ট হচ্ছে ↻', 'success');
-      // immediate refresh + 1s later again for status confirmation
+
+      const msgs = { start: 'বট চালু হচ্ছে ▶', stop: 'বট বন্ধ হচ্ছে ⏹', restart: 'রিস্টার্ট হচ্ছে ↻' };
+      toast(msgs[action] || action, 'success');
+
+      // স্টপ হলে সাথে সাথে local state আপডেট করো (socket status আসার আগেই দেখাতে)
+      if (action === 'stop') {
+        const bot = bots.find(b => b.id === id);
+        if (bot) {
+          bot.status = 'stopped';
+          bot.pid = null;
+          updateBotCardStatus(id, bot);
+        }
+      }
+
+      // server থেকে fresh data নাও
       await loadBots();
-      setTimeout(loadBots, 1000);
-      setTimeout(loadBots, 2500);
-    } catch (e) { toast(e.message, 'error'); }
+      // ২ বার আরো refresh — প্রসেস পুরোপুরি বন্ধ/চালু নিশ্চিত করতে
+      setTimeout(loadBots, 1200);
+      setTimeout(loadBots, 3000);
+    } catch (e) {
+      toast(e.message, 'error');
+      // এররে বোতাম re-enable করো
+      if (btn) { btn.disabled = false; btn.style.opacity = ''; }
+    }
   }
 
   async function deleteBot(b) {

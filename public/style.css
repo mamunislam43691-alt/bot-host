@@ -187,9 +187,10 @@ label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px
   font-size: 12.5px; line-height: 1.55; white-space: pre-wrap; word-break: break-word;
 }
 .log-line.stderr { color: #ff8a8a; }
-.log-line.system { color: #fbbf24; }
+.log-line.system { color: #fbbf24; font-style: italic; }
 .log-line.stdout { color: #c7e8c7; }
-.log-line .ts { color: #4a5481; margin-right: 8px; }
+.log-line .ts { color: #4a5481; margin-right: 8px; font-size: 11px; }
+.log-line { padding: 1px 0; }
 .log-empty { color: #4a5481; font-style: italic; }
 
 /* ---------- Modal ---------- */

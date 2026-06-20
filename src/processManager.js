@@ -2,7 +2,7 @@
 // stream stdout/stderr to DB log buffer and Socket.IO rooms.
 //
 // Each bot runs as an isolated child_process spawned in its own working dir.
-const { spawn } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const store = require('../db/store');
@@ -13,11 +13,10 @@ const { LANGUAGES, autoDetectDeps, installPythonPackages } = require('./language
 // so we don't reinstall on every restart.
 const depsInstalled = new Set();
 
-// botId -> { proc, pid, startedAt, autoRestart, restartCount, status }
-// status: 'stopped' | 'starting' | 'running'
+// botId -> { proc, pid, startedAt, autoRestart, restartCount, status, stopping }
+// status: 'stopped' | 'starting' | 'running' | 'stopping'
 const running = new Map();
-// botId -> Set of socket ids currently tailing this bot's logs
-const watchers = new Map();
+
 let io = null;
 
 function setIO(socketIO) { io = socketIO; }
@@ -30,12 +29,19 @@ function emit(botId, stream, text) {
   // persist + push to any connected watchers
   store.appendLog(botId, stream, text);
   if (io) io.to(`bot:${botId}`).emit('log', { botId, stream, text, ts: Date.now() });
+  // also emit a status update so frontend can refresh immediately
+  if (io) io.to(`bot:${botId}`).emit('status', { botId, ...describeInternal(botId) });
+}
+
+function emitStatusUpdate(botId) {
+  if (io) io.to(`bot:${botId}`).emit('status', { botId, ...describeInternal(botId) });
 }
 
 function statusOf(botId) {
   const r = running.get(botId);
   if (!r) return 'stopped';
-  if (r.status === 'starting') return 'running'; // show as running to user
+  if (r.stopping) return 'stopping';
+  if (r.status === 'starting') return 'starting';
   if (!r.proc) return 'stopped';
   if (r.proc.killed) return 'stopped';
   // In Node, exitCode is null while process is still alive
@@ -43,20 +49,52 @@ function statusOf(botId) {
   return 'stopped';
 }
 
-function describe(botId) {
+function describeInternal(botId) {
   const r = running.get(botId);
+  const s = statusOf(botId);
   return {
-    status: statusOf(botId),
-    pid: r && r.proc && r.proc.pid && statusOf(botId) === 'running' ? r.proc.pid : null,
+    status: s === 'stopping' ? 'stopped' : s, // ফ্রন্টেন্ডে stopping কে stopped দেখাই
+    pid: r && r.proc && r.proc.pid && (s === 'running') ? r.proc.pid : null,
     startedAt: r ? r.startedAt : null,
     restartCount: r ? r.restartCount : 0,
   };
 }
 
+function describe(botId) {
+  return describeInternal(botId);
+}
+
+// Windows-safe process tree kill
+function killProcess(proc) {
+  if (!proc) return;
+  const pid = proc.pid;
+  if (!pid) return;
+
+  if (process.platform === 'win32') {
+    // Windows: taskkill পুরো process tree সহ বন্ধ করে
+    try {
+      spawnSync('taskkill', ['/pid', String(pid), '/f', '/t'], { timeout: 5000 });
+    } catch (_) {}
+  } else {
+    // Unix: process group kill
+    try {
+      process.kill(-pid, 'SIGTERM');
+    } catch (_) {
+      try { proc.kill('SIGTERM'); } catch (_) {}
+    }
+    setTimeout(() => {
+      try { process.kill(-pid, 'SIGKILL'); } catch (_) {
+        try { proc.kill('SIGKILL'); } catch (_) {}
+      }
+    }, 3000);
+  }
+}
+
 function start(bot, isAutoRestart = false) {
   // already running?
-  if (statusOf(bot.id) === 'running') {
-    emit(bot.id, 'system', 'Bot is already running.');
+  const curStatus = statusOf(bot.id);
+  if (curStatus === 'running' || curStatus === 'starting') {
+    emit(bot.id, 'system', '⚠ বট ইতোমধ্যে চলছে।');
     return false;
   }
 
@@ -67,56 +105,52 @@ function start(bot, isAutoRestart = false) {
 
   const workdir = botWorkdir(bot);
   if (!fs.existsSync(workdir)) {
-    emit(bot.id, 'system', `Working directory missing: ${workdir}`);
+    emit(bot.id, 'system', `✕ Working directory missing: ${workdir}`);
     return false;
   }
   const entryPath = path.join(workdir, bot.entry_file);
   if (!fs.existsSync(entryPath)) {
-    emit(bot.id, 'system', `Entry file not found: ${bot.entry_file}`);
+    emit(bot.id, 'system', `✕ Entry file not found: ${bot.entry_file}`);
     return false;
   }
 
   const lang = LANGUAGES[bot.language];
   if (!lang) {
-    emit(bot.id, 'system', `Unsupported language: ${bot.language}`);
+    emit(bot.id, 'system', `✕ Unsupported language: ${bot.language}`);
     return false;
   }
 
   // Check if the runtime is available BEFORE spawning
   if (typeof lang.available === 'function' && !lang.available()) {
     const msg = bot.language === 'python'
-      ? `✕ Python is not installed on this server. The server admin must add Python to the build (see nixpacks.toml).`
-      : `✕ The ${lang.label} runtime is not available on this server.`;
+      ? `✕ Python এই সার্ভারে ইনস্টল নেই। nixpacks.toml দেখুন।`
+      : `✕ ${lang.label} runtime এই সার্ভারে নেই।`;
     emit(bot.id, 'system', msg);
     return false;
   }
 
-  // ---------- Ensure dependencies are installed (covers older bots too) ----------
-  // We run this once per bot per server lifetime (cached via depsInstalled set).
+  // ---------- Ensure dependencies are installed ----------
   if (!depsInstalled.has(bot.id)) {
     try {
       if (bot.language === 'python') {
-        // 1) requirements.txt inside the bot folder
         const reqFile = path.join(workdir, 'requirements.txt');
         if (fs.existsSync(reqFile)) {
-          emit(bot.id, 'system', `📦 Installing requirements.txt...`);
+          emit(bot.id, 'system', `📦 requirements.txt ইনস্টল হচ্ছে...`);
           installPythonPackages(workdir, fs.readFileSync(reqFile, 'utf8'));
-          emit(bot.id, 'system', '✓ requirements.txt installed.');
+          emit(bot.id, 'system', '✓ requirements.txt ইনস্টল সম্পন্ন।');
         }
-        // 2) auto-detect imports from the entry file
         const detected = autoDetectDeps(bot.entry_file, workdir);
         if (detected.length) {
-          emit(bot.id, 'system', `🔍 Auto-detected imports: ${detected.join(', ')}`);
+          emit(bot.id, 'system', `🔍 অটো-ডিটেক্ট: ${detected.join(', ')}`);
           installPythonPackages(workdir, detected.join('\n'));
-          emit(bot.id, 'system', '✓ Auto-detected dependencies installed.');
+          emit(bot.id, 'system', '✓ অটো-ডিটেক্ট dependencies ইনস্টল সম্পন্ন।');
         }
       } else if (lang.installDeps) {
         lang.installDeps(workdir);
       }
       depsInstalled.add(bot.id);
     } catch (e) {
-      emit(bot.id, 'system', `⚠ Dependency install warning: ${e.message}`);
-      // mark as attempted so we don't loop forever on broken deps
+      emit(bot.id, 'system', `⚠ Dependency install সতর্কতা: ${e.message}`);
       depsInstalled.add(bot.id);
     }
   }
@@ -132,6 +166,8 @@ function start(bot, isAutoRestart = false) {
     env.PYTHONPATH = env.PYTHONPATH
       ? `${path.join(workdir, '.deps')}${path.delimiter}${env.PYTHONPATH}`
       : path.join(workdir, '.deps');
+    // Python output buffer বন্ধ করো (সাথে সাথে লগে দেখা যাবে)
+    env.PYTHONUNBUFFERED = '1';
   }
 
   let proc;
@@ -141,11 +177,16 @@ function start(bot, isAutoRestart = false) {
       env,
       shell: true,
       windowsHide: true,
+      // Windows-এ process group তৈরি করো যাতে পুরো tree kill করা যায়
+      detached: process.platform !== 'win32',
     });
   } catch (e) {
-    emit(bot.id, 'system', `✕ Failed to spawn ${lang.binary}: ${e.message}`);
+    emit(bot.id, 'system', `✕ Spawn করতে ব্যর্থ ${lang.binary}: ${e.message}`);
     return false;
   }
+
+  // Unix-এ detached প্রসেসকে unref না করি — আমরা track করব
+  // (unref করলে parent exit হলেও child চলে, কিন্তু আমরা চাই kill করতে পারতে)
 
   const rec = {
     proc,
@@ -153,90 +194,104 @@ function start(bot, isAutoRestart = false) {
     startedAt: Date.now(),
     autoRestart: !!bot.auto_restart,
     restartCount: 0,
-    status: 'starting', // will become 'running' once we confirm it's alive
+    status: 'starting',
+    stopping: false,
   };
   running.set(bot.id, rec);
 
-  emit(bot.id, 'system', `▶ Starting [${lang.label}] ${bot.entry_file} (pid ${proc.pid})`);
+  const startMsg = isAutoRestart
+    ? `↻ অটো-রিস্টার্ট [${lang.label}] ${bot.entry_file} (pid ${proc.pid})`
+    : `▶ বট চালু হচ্ছে [${lang.label}] ${bot.entry_file} (pid ${proc.pid})`;
+  emit(bot.id, 'system', startMsg);
   store.markStarted(bot.id);
 
-  // Confirm process is alive (check if it hasn't immediately crashed)
+  // Confirm process is alive after short delay
   setTimeout(() => {
     const cur = running.get(bot.id);
     if (cur && cur.status === 'starting' && cur.proc && cur.proc.exitCode === null && cur.proc.signalCode === null) {
       cur.status = 'running';
+      emit(bot.id, 'system', `✓ বট চালু হয়েছে (pid ${proc.pid})`);
+      emitStatusUpdate(bot.id);
     }
-  }, 500);
+  }, 800);
 
-  const lineBuf = (stream) => {
+  const makeLineBuf = (stream) => {
     let pending = '';
     return (chunk) => {
       pending += chunk.toString();
       let idx;
       while ((idx = pending.indexOf('\n')) >= 0) {
-        const line = pending.slice(0, idx);
+        const line = pending.slice(0, idx).replace(/\r$/, '');
         pending = pending.slice(idx + 1);
         if (line.length) emit(bot.id, stream, line);
       }
-      if (pending.length) emit(bot.id, stream, pending);
-      pending = '';
     };
   };
 
-  proc.stdout.on('data', lineBuf('stdout'));
-  proc.stderr.on('data', lineBuf('stderr'));
+  proc.stdout.on('data', makeLineBuf('stdout'));
+  proc.stderr.on('data', makeLineBuf('stderr'));
 
   proc.on('error', (err) => {
     const msg = err.code === 'ENOENT'
-      ? `✕ Command not found: "${lang.binary}". ${bot.language === 'python' ? 'এই সার্ভারে Python ইনস্টল নেই।' : 'Runtime missing.'}`
-      : `✕ Process error: ${err.message}`;
+      ? `✕ কমান্ড পাওয়া যায়নি: "${lang.binary}". ${bot.language === 'python' ? 'এই সার্ভারে Python ইনস্টল নেই।' : 'Runtime missing.'}`
+      : `✕ প্রসেস এরর: ${err.message}`;
     emit(bot.id, 'system', msg);
     const cur = running.get(bot.id);
     if (cur) cur.status = 'stopped';
+    emitStatusUpdate(bot.id);
   });
 
   proc.on('spawn', () => {
-    // 'spawn' event fires when the process has successfully started
     const cur = running.get(bot.id);
-    if (cur) cur.status = 'running';
+    if (cur && !cur.stopping) cur.status = 'running';
+    emitStatusUpdate(bot.id);
   });
 
   proc.on('exit', (code, signal) => {
     const cur = running.get(bot.id);
-    if (cur) cur.status = 'stopped';
-    // Remove from running map after a short delay so the frontend can see 'stopped' status
-    setTimeout(() => {
-      if (running.has(bot.id)) running.delete(bot.id);
-    }, 3000);
+    const wasManualStop = cur && cur.stopping;
+
+    // running map থেকে সরিয়ে দাও
+    running.delete(bot.id);
 
     let msg;
-    if (signal) {
-      msg = `■ Process killed by signal ${signal}`;
+    if (wasManualStop) {
+      msg = `⏹ বট বন্ধ হয়েছে।`;
+    } else if (signal) {
+      msg = `■ প্রসেস signal দিয়ে বন্ধ হয়েছে: ${signal}`;
     } else if (code === 0) {
-      msg = `■ Process exited successfully (code 0)`;
+      msg = `■ প্রসেস সফলভাবে শেষ হয়েছে (code 0)`;
     } else {
-      msg = `■ Process exited with error (code ${code}).`;
-      // Helpful hints for common failure causes
+      msg = `■ প্রসেস এরর দিয়ে বন্ধ হয়েছে (code ${code}).`;
       if (bot.language === 'python' && (code === 127 || code === 1)) {
         const hasReq = fs.existsSync(path.join(workdir, 'requirements.txt'));
         msg += hasReq
-          ? ' সম্ভবত কোনো dependency missing বা স্ক্রিপ্টে error। লগের stderr অংশ দেখুন।'
-          : ' সম্ভবত script-এ syntax error বা missing module।';
+          ? ' সম্ভবত dependency missing বা স্ক্রিপ্টে error। stderr লগ দেখুন।'
+          : ' সম্ভবত syntax error বা missing module।';
       }
     }
-    emit(bot.id, code === 0 ? 'system' : 'stderr', msg);
+    emit(bot.id, wasManualStop ? 'system' : (code === 0 ? 'system' : 'stderr'), msg);
+    emitStatusUpdate(bot.id);
 
-    // Optional auto-restart on unexpected crash (not on manual stop / SIGTERM)
-    if (cur && cur.autoRestart && code !== 0 && code !== null && signal !== 'SIGTERM') {
-      if (cur.restartCount < 5) {
-        cur.restartCount++;
-        emit(bot.id, 'system', `↻ Auto-restarting in 3s (attempt ${cur.restartCount}/5)...`);
+    // Optional auto-restart — manual stop হলে restart করব না
+    if (!wasManualStop && cur && cur.autoRestart && code !== 0 && code !== null && signal !== 'SIGTERM' && signal !== 'SIGKILL') {
+      if ((cur.restartCount || 0) < 5) {
+        const nextCount = (cur.restartCount || 0) + 1;
+        emit(bot.id, 'system', `↻ অটো-রিস্টার্ট ৩ সেকেন্ড পরে (attempt ${nextCount}/5)...`);
         setTimeout(() => {
           const fresh = store.getBot(bot.id);
-          if (fresh) start(fresh, true);
+          if (fresh) {
+            const newRec = running.get(bot.id);
+            // শুধু যদি এখনো বন্ধ থাকে তাহলে restart করো
+            if (!newRec) {
+              start(fresh, true);
+              const r = running.get(bot.id);
+              if (r) r.restartCount = nextCount;
+            }
+          }
         }, 3000);
       } else {
-        emit(bot.id, 'system', '✕ Max auto-restart attempts reached. Stopping.');
+        emit(bot.id, 'system', '✕ সর্বোচ্চ অটো-রিস্টার্ট সীমা পৌঁছেছে। বট বন্ধ।');
       }
     }
   });
@@ -246,49 +301,92 @@ function start(bot, isAutoRestart = false) {
 
 function stop(botId) {
   const rec = running.get(botId);
-  if (!rec || !rec.proc || rec.proc.exitCode !== null) {
-    emit(botId, 'system', 'Bot is not running.');
+
+  if (!rec || !rec.proc) {
+    emit(botId, 'system', '⚠ বট চলছে না।');
     return false;
   }
-  rec.status = 'stopped';
-  rec.autoRestart = false; // prevent restart loops
-  try {
-    rec.proc.kill('SIGTERM');
-    // force-kill after 5s if still alive
-    setTimeout(() => {
-      if (running.has(botId)) {
-        try { rec.proc.kill('SIGKILL'); } catch (_) {}
-      }
-    }, 5000);
-  } catch (e) {
-    emit(botId, 'system', `Stop error: ${e.message}`);
+
+  // ইতোমধ্যে বন্ধ প্রসেস
+  if (rec.proc.exitCode !== null || rec.proc.signalCode !== null) {
+    running.delete(botId);
+    emit(botId, 'system', '⏹ বট বন্ধ হয়েছে।');
+    emitStatusUpdate(botId);
+    return false;
   }
-  emit(botId, 'system', '⏹ Stop requested.');
+
+  // manual stop flag — auto-restart এবং exit handler কে জানাই
+  rec.stopping = true;
+  rec.autoRestart = false;
+  rec.status = 'stopping';
+  emit(botId, 'system', '⏹ বট বন্ধ করা হচ্ছে...');
+  emitStatusUpdate(botId);
+
+  // প্রসেস kill করো
+  killProcess(rec.proc);
+
+  // ৫ সেকেন্ড পরেও না মরলে জোর করে সরাও
+  setTimeout(() => {
+    if (running.has(botId)) {
+      running.delete(botId);
+      emit(botId, 'system', '⏹ বট বন্ধ হয়েছে (force)।');
+      emitStatusUpdate(botId);
+    }
+  }, 5000);
+
   return true;
 }
 
 function restart(botId) {
   const bot = store.getBot(botId);
   if (!bot) return false;
-  const wasRunning = statusOf(botId) === 'running';
-  if (wasRunning) {
-    const rec = running.get(botId);
+
+  const rec = running.get(botId);
+  const wasRunning = rec && (statusOf(botId) === 'running' || statusOf(botId) === 'starting');
+
+  emit(botId, 'system', '↻ রিস্টার্ট হচ্ছে...');
+
+  if (wasRunning && rec && rec.proc) {
+    // manual stop হিসেবে চিহ্নিত করো (auto-restart রোধ করতে)
+    rec.stopping = true;
     rec.autoRestart = false;
-    try { rec.proc.kill('SIGTERM'); } catch (_) {}
-    running.delete(botId);
+
+    // প্রসেস exit হওয়ার পর start করব
+    const onExit = () => {
+      running.delete(botId);
+      setTimeout(() => {
+        const fresh = store.getBot(botId);
+        if (fresh) start(fresh, false);
+      }, 500);
+    };
+
+    rec.proc.once('exit', onExit);
+    // exit না হলেও ৩ সেকেন্ড পর জোর করে start
+    setTimeout(() => {
+      if (running.has(botId) && running.get(botId) === rec) {
+        rec.proc.removeListener('exit', onExit);
+        running.delete(botId);
+      }
+      const fresh = store.getBot(botId);
+      if (fresh && statusOf(botId) === 'stopped') start(fresh, false);
+    }, 3000);
+
+    killProcess(rec.proc);
+  } else {
+    // বন্ধ ছিল — সরাসরি start করো
+    if (rec) running.delete(botId);
+    setTimeout(() => {
+      const fresh = store.getBot(botId);
+      if (fresh) start(fresh, false);
+    }, 200);
   }
-  // small delay so the port/file is released
-  setTimeout(() => start(bot), wasRunning ? 800 : 0);
-  emit(botId, 'system', '↻ Restarting...');
+
   return true;
 }
 
 function stopAll() {
   for (const [id] of running) stop(id);
 }
-
-// On server boot, restart bots that were previously running? We opt for manual
-// restart (safer & predictable), but expose the list of stopped bots.
 
 module.exports = {
   setIO,

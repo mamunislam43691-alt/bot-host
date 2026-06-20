@@ -44,6 +44,15 @@ io.use((socket, next) => {
   }
 });
 io.on('connection', (socket) => {
+  // ইউজারের সব বটের status room-এ auto-join করো
+  const userBots = store.getBotsByUser(socket.data.user.id);
+  if (socket.data.user.is_admin) {
+    // admin সব বটের update পাবে
+    store.getAllBots().forEach(b => socket.join(`bot:${b.id}`));
+  } else {
+    userBots.forEach(b => socket.join(`bot:${b.id}`));
+  }
+
   socket.on('subscribe', (botId) => {
     const bot = store.getBot(botId);
     if (!bot) return;
