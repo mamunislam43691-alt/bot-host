@@ -1,10 +1,49 @@
 # nixpacks.toml — Railway build configuration
-# Ensures Python 3 + pip + Node.js all available so hosted bots can run.
+# Ensures Python 3 + pip + Node.js + common system libs are available.
+
 [phases.setup]
-nixPkgs = ['python312', 'python312Packages.pip', 'nodejs_22', 'gcc']
+nixPkgs = [
+  # --- Runtimes ---
+  'python312',
+  'python312Packages.pip',
+  'nodejs_22',
+
+  # --- Build tools (C extensions compile করতে লাগে) ---
+  'gcc',
+  'gnumake',
+  'pkg-config',
+
+  # --- Python common deps: cryptography, Pillow, lxml, psycopg2 ইত্যাদির জন্য ---
+  'openssl',
+  'libffi',
+  'zlib',
+  'libjpeg',
+  'libpng',
+  'freetype',
+  'libxml2',
+  'libxslt',
+  'postgresql',
+
+  # --- Headless browser / Selenium / Playwright ---
+  'chromium',
+  'chromedriver',
+
+  # --- Media processing (pydub, moviepy, yt-dlp) ---
+  'ffmpeg',
+
+  # --- Bash scripts ---
+  'bash',
+  'curl',
+  'wget',
+  'git',
+]
 
 [phases.install]
-cmds = ['npm install']
+cmds = [
+  'npm install',
+  # pip নিজেও আপডেট করো যাতে latest packages ইনস্টল হয়
+  'python3 -m pip install --upgrade pip --quiet',
+]
 
 [start]
 cmd = 'node server.js'

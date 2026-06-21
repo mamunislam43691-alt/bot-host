@@ -142,8 +142,16 @@ router.post('/', upload.single('file'), async (req, res) => {
     if (lang) {
       if (requirements && finalLanguage === 'python') {
         try {
-          pm.emit(botId, 'system', `📦 Dependencies ইনস্টল হচ্ছে: ${requirements.replace(/\n/g, ', ')}`);
-          installPythonPackages(botWorkdir, requirements);
+          pm.emit(botId, 'system', `📦 Dependencies ইনস্টল হচ্ছে...`);
+          const pkgs = requirements.split(/[\n,]/).map(s => s.trim()).filter(s => s && !s.startsWith('#'));
+          for (const pkg of pkgs) {
+            try {
+              installPythonPackages(botWorkdir, pkg);
+              pm.emit(botId, 'system', `  ✓ ${pkg}`);
+            } catch (_) {
+              pm.emit(botId, 'system', `  ✕ ${pkg} ইনস্টল ব্যর্থ`);
+            }
+          }
           pm.emit(botId, 'system', '✓ Dependencies ইনস্টল সম্পন্ন।');
         } catch (e) {
           pm.emit(botId, 'system', `⚠ Dependency install সতর্কতা: ${e.message}`);
@@ -158,10 +166,20 @@ router.post('/', upload.single('file'), async (req, res) => {
       if (finalLanguage === 'python') {
         try {
           const detected = autoDetectDeps(entryFile, botWorkdir);
-          if (detected.length) {
-            pm.emit(botId, 'system', `🔍 অটো-ডিটেক্ট: ${detected.join(', ')}`);
-            installPythonPackages(botWorkdir, detected.join('\n'));
-            pm.emit(botId, 'system', '✓ অটো-ডিটেক্ট dependencies ইনস্টল সম্পন্ন।');
+          const reqPkgs = requirements
+            ? requirements.split(/[\n,]/).map(s => s.trim().split(/[=><!\[]/)[0].toLowerCase()).filter(Boolean)
+            : [];
+          const newPkgs = detected.filter(p => !reqPkgs.includes(p.toLowerCase()));
+          if (newPkgs.length) {
+            pm.emit(botId, 'system', `🔍 অটো-ডিটেক্ট (অতিরিক্ত): ${newPkgs.join(', ')}`);
+            for (const pkg of newPkgs) {
+              try {
+                installPythonPackages(botWorkdir, pkg);
+                pm.emit(botId, 'system', `  ✓ ${pkg}`);
+              } catch (_) {
+                pm.emit(botId, 'system', `  ✕ ${pkg} — pip-এ নেই বা ভিন্ন নামে আছে`);
+              }
+            }
           }
         } catch (e) {
           pm.emit(botId, 'system', `⚠ অটো-ডিটেক্ট সতর্কতা: ${e.message}`);

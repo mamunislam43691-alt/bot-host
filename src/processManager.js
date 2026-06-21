@@ -133,17 +133,54 @@ function start(bot, isAutoRestart = false) {
   if (!depsInstalled.has(bot.id)) {
     try {
       if (bot.language === 'python') {
+        // ১. requirements.txt থেকে ইনস্টল
         const reqFile = path.join(workdir, 'requirements.txt');
         if (fs.existsSync(reqFile)) {
           emit(bot.id, 'system', `📦 requirements.txt ইনস্টল হচ্ছে...`);
-          installPythonPackages(workdir, fs.readFileSync(reqFile, 'utf8'));
-          emit(bot.id, 'system', '✓ requirements.txt ইনস্টল সম্পন্ন।');
+          try {
+            installPythonPackages(workdir, fs.readFileSync(reqFile, 'utf8'));
+            emit(bot.id, 'system', '✓ requirements.txt ইনস্টল সম্পন্ন।');
+          } catch (e) {
+            emit(bot.id, 'system', `⚠ requirements.txt bulk install ব্যর্থ। প্রতিটা আলাদা চেষ্টা করছি...`);
+            // bulk ব্যর্থ হলে একটা একটা করে install করো
+            const pkgs = fs.readFileSync(reqFile, 'utf8')
+              .split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('#'));
+            let failedPkgs = [];
+            for (const pkg of pkgs) {
+              try {
+                installPythonPackages(workdir, pkg);
+                emit(bot.id, 'system', `  ✓ ${pkg}`);
+              } catch (_) {
+                failedPkgs.push(pkg);
+                emit(bot.id, 'system', `  ✕ ${pkg} ইনস্টল ব্যর্থ`);
+              }
+            }
+            if (failedPkgs.length) {
+              emit(bot.id, 'system', `⚠ ইনস্টল হয়নি: ${failedPkgs.join(', ')} — স্ক্রিপ্টে error হতে পারে`);
+            }
+          }
         }
+
+        // ২. সব .py ফাইল scan করে অটো-ডিটেক্ট (requirements.txt-এ নেই এমন)
         const detected = autoDetectDeps(bot.entry_file, workdir);
-        if (detected.length) {
-          emit(bot.id, 'system', `🔍 অটো-ডিটেক্ট: ${detected.join(', ')}`);
-          installPythonPackages(workdir, detected.join('\n'));
-          emit(bot.id, 'system', '✓ অটো-ডিটেক্ট dependencies ইনস্টল সম্পন্ন।');
+        // requirements.txt-এ আছে এমন বাদ দাও (duplicate এড়াতে)
+        const reqPkgs = fs.existsSync(reqFile)
+          ? fs.readFileSync(reqFile, 'utf8').split('\n')
+              .map(l => l.trim().split(/[=><!\[]/)[0].toLowerCase()).filter(Boolean)
+          : [];
+        const newPkgs = detected.filter(p => !reqPkgs.includes(p.toLowerCase()));
+
+        if (newPkgs.length) {
+          emit(bot.id, 'system', `🔍 অটো-ডিটেক্ট (অতিরিক্ত): ${newPkgs.join(', ')}`);
+          // একটা একটা করে install করো যাতে একটা fail করলে বাকিগুলো হয়
+          for (const pkg of newPkgs) {
+            try {
+              installPythonPackages(workdir, pkg);
+              emit(bot.id, 'system', `  ✓ ${pkg}`);
+            } catch (_) {
+              emit(bot.id, 'system', `  ✕ ${pkg} — pip-এ নেই বা ভিন্ন নামে আছে`);
+            }
+          }
         }
       } else if (lang.installDeps) {
         lang.installDeps(workdir);
@@ -163,11 +200,20 @@ function start(bot, isAutoRestart = false) {
   } catch (_) { /* ignore malformed */ }
 
   if (bot.language === 'python') {
-    env.PYTHONPATH = env.PYTHONPATH
-      ? `${path.join(workdir, '.deps')}${path.delimiter}${env.PYTHONPATH}`
-      : path.join(workdir, '.deps');
-    // Python output buffer বন্ধ করো (সাথে সাথে লগে দেখা যাবে)
+    const depsDir = path.join(workdir, '.deps');
+    // .deps ফোল্ডার exist করে তা নিশ্চিত করো
+    if (!fs.existsSync(depsDir)) {
+      try { fs.mkdirSync(depsDir, { recursive: true }); } catch (_) {}
+    }
+    // PYTHONPATH-এ .deps যোগ করো — installed packages খুঁজে পাবে
+    const existing = env.PYTHONPATH ? env.PYTHONPATH.split(path.delimiter) : [];
+    if (!existing.includes(depsDir)) {
+      env.PYTHONPATH = [depsDir, ...existing].filter(Boolean).join(path.delimiter);
+    }
+    // unbuffered output — লগে সাথে সাথে দেখা যাবে
     env.PYTHONUNBUFFERED = '1';
+    // encoding fix
+    env.PYTHONIOENCODING = 'utf-8';
   }
 
   let proc;

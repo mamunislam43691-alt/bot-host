@@ -146,37 +146,56 @@ router.post('/upload', upload.single('file'), async (req, res) => {
     // Priority: user-supplied "requirements" field > requirements.txt/package.json > auto-detect from imports
     const lang = LANGUAGES[finalLanguage];
     if (lang) {
-      // 1) If user typed deps in the form, write them to requirements.txt (python) or install directly
+      // ১) user-supplied requirements (form field থেকে)
       if (requirements && finalLanguage === 'python') {
         try {
-          pm.emit(botId, 'system', `📦 Installing dependencies: ${requirements.replace(/\n/g, ', ')}`);
-          installPythonPackages(botWorkdir, requirements);
-          pm.emit(botId, 'system', '✓ Dependencies installed.');
+          emit(botId, 'system', `📦 Dependencies ইনস্টল হচ্ছে...`);
+          // একটা একটা করে install — একটা fail হলে বাকিগুলো হবে
+          const pkgs = requirements.split(/[\n,]/).map(s => s.trim()).filter(s => s && !s.startsWith('#'));
+          for (const pkg of pkgs) {
+            try {
+              installPythonPackages(botWorkdir, pkg);
+              emit(botId, 'system', `  ✓ ${pkg}`);
+            } catch (_) {
+              emit(botId, 'system', `  ✕ ${pkg} ইনস্টল ব্যর্থ`);
+            }
+          }
+          emit(botId, 'system', '✓ Dependencies ইনস্টল সম্পন্ন।');
         } catch (e) {
-          pm.emit(botId, 'system', `⚠ Dependency install warning: ${e.message}`);
+          emit(botId, 'system', `⚠ Dependency install সতর্কতা: ${e.message}`);
         }
       } else if (lang.installDeps) {
-        // 2) Use packaged requirements.txt / package.json if present
+        // ২) requirements.txt / package.json থেকে
         try {
-          pm.emit(botId, 'system', `📦 Installing dependencies for ${lang.label}...`);
+          emit(botId, 'system', `📦 ${lang.label} dependencies ইনস্টল হচ্ছে...`);
           lang.installDeps(botWorkdir);
-          pm.emit(botId, 'system', '✓ Dependencies installed.');
+          emit(botId, 'system', '✓ Dependencies ইনস্টল সম্পন্ন।');
         } catch (e) {
-          pm.emit(botId, 'system', `⚠ Dependency install warning: ${e.message}`);
+          emit(botId, 'system', `⚠ Dependency install সতর্কতা: ${e.message}`);
         }
       }
 
-      // 3) Auto-detect missing imports for Python (in case script needs more)
+      // ৩) Python: সব .py ফাইল scan করে অতিরিক্ত package খোঁজো
       if (finalLanguage === 'python') {
         try {
           const detected = autoDetectDeps(entryFile, botWorkdir);
-          if (detected.length) {
-            pm.emit(botId, 'system', `🔍 Auto-detected imports: ${detected.join(', ')}`);
-            installPythonPackages(botWorkdir, detected.join('\n'));
-            pm.emit(botId, 'system', '✓ Auto-detected dependencies installed.');
+          const reqPkgs = requirements
+            ? requirements.split(/[\n,]/).map(s => s.trim().split(/[=><!\[]/)[0].toLowerCase()).filter(Boolean)
+            : [];
+          const newPkgs = detected.filter(p => !reqPkgs.includes(p.toLowerCase()));
+          if (newPkgs.length) {
+            emit(botId, 'system', `🔍 অটো-ডিটেক্ট (অতিরিক্ত): ${newPkgs.join(', ')}`);
+            for (const pkg of newPkgs) {
+              try {
+                installPythonPackages(botWorkdir, pkg);
+                emit(botId, 'system', `  ✓ ${pkg}`);
+              } catch (_) {
+                emit(botId, 'system', `  ✕ ${pkg} — pip-এ নেই বা ভিন্ন নামে আছে`);
+              }
+            }
           }
         } catch (e) {
-          pm.emit(botId, 'system', `⚠ Auto-detect install warning: ${e.message}`);
+          emit(botId, 'system', `⚠ অটো-ডিটেক্ট সতর্কতা: ${e.message}`);
         }
       }
     }
