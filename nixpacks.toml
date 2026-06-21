@@ -2,47 +2,36 @@
 
 [phases.setup]
 nixPkgs = [
-  # --- Runtimes ---
   'python312',
   'python312Packages.pip',
   'nodejs_22',
-
-  # --- C++ stdlib — grpc/firebase/numpy/cryptography এর জন্য অবশ্যই দরকার ---
   'gcc',
   'stdenv.cc.cc.lib',
   'glibc',
-
-  # --- Build tools ---
   'gnumake',
   'pkg-config',
-  'binutils',
-  'patchelf',
-
-  # --- SSL / crypto ---
   'openssl',
   'libffi',
-
-  # --- Compression / Image / XML ---
   'zlib',
   'libjpeg',
   'libpng',
   'freetype',
   'libxml2',
   'libxslt',
-
-  # --- Media ---
   'ffmpeg',
-
-  # --- Utilities ---
   'bash',
   'curl',
   'wget',
   'git',
-  'findutils',
 ]
 
 [phases.install]
-cmds = ['npm install']
+cmds = [
+  'npm install',
+  # Build time-এই common compiled packages pre-install করো
+  # এতে runtime-এ আর compile করতে হবে না, pre-built wheel use হবে
+  'python3 -m pip install --prefer-binary --quiet grpcio firebase-admin google-cloud-firestore numpy pandas Pillow opencv-python-headless cryptography lxml aiohttp pydantic',
+]
 
 [start]
 cmd = 'node server.js'

@@ -41,6 +41,24 @@ function findWorkingPipBase() {
   return _workingPipBase;
 }
 
+// system-wide already installed আছে কিনা চেক করো
+const _installedCache = new Set();
+function isSystemInstalled(pkgName) {
+  const base = pkgName.replace(/\[.*\]/, '').split(/[=><!\s]/)[0]
+    .toLowerCase().replace(/-/g, '_');
+  if (_installedCache.has(base)) return true;
+  try {
+    const py = findPython() || 'python3';
+    execSync(`${py} -c "import ${base}" 2>/dev/null`, {
+      stdio: 'pipe', shell: true, timeout: 3000,
+    });
+    _installedCache.add(base);
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
 function runPipInstall(workdir, argsStr) {
   const base = findWorkingPipBase();
   const cmds = [
@@ -135,21 +153,30 @@ function installPythonPackages(workdir, depsString) {
   const systemPkgs = pkgs.filter(p => needsSystemInstall(p));
   const localPkgs  = pkgs.filter(p => !needsSystemInstall(p));
 
-  // system-wide install চেষ্টা, fail হলে .deps fallback
+  // system-wide install — pre-built wheel force করো (compile লাগবে না)
   if (systemPkgs.length) {
-    const quoted = systemPkgs.map(p => `"${p}"`).join(' ');
-    try {
-      runPipInstall(workdir, `--no-cache-dir --quiet ${quoted}`);
-    } catch (_) {
-      // system write permission নেই → .deps-এ install করো
-      runPipInstall(workdir, `--target "${depsDir}" --no-cache-dir --quiet ${quoted}`);
+    // build time-এ already installed থাকলে skip করো
+    const toInstall = systemPkgs.filter(p => {
+      const importName = p.replace(/\[.*\]/, '').split(/[=><!\s]/)[0]
+        .toLowerCase().replace(/-/g, '_');
+      return !isSystemInstalled(importName);
+    });
+
+    if (toInstall.length) {
+      const quoted = toInstall.map(p => `"${p}"`).join(' ');
+      try {
+        runPipInstall(workdir, `--prefer-binary --no-cache-dir --quiet ${quoted}`);
+      } catch (_) {
+        // system write fail → .deps fallback
+        runPipInstall(workdir, `--target "${depsDir}" --prefer-binary --no-cache-dir --quiet ${quoted}`);
+      }
     }
   }
 
   // pure Python → .deps
   if (localPkgs.length) {
     const quoted = localPkgs.map(p => `"${p}"`).join(' ');
-    runPipInstall(workdir, `--target "${depsDir}" --no-cache-dir --quiet ${quoted}`);
+    runPipInstall(workdir, `--target "${depsDir}" --prefer-binary --no-cache-dir --quiet ${quoted}`);
   }
 }
 

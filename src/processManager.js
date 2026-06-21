@@ -221,7 +221,6 @@ function start(bot, isAutoRestart = false) {
               installPythonPackages(workdir, pkg);
               emit(bot.id, 'system', `  ✓ ${pkg}`);
             } catch (e) {
-              // error message সম্পূর্ণ দেখাও
               const errDetail = e.message ? e.message.split('\n').slice(0, 3).join(' | ') : 'unknown error';
               emit(bot.id, 'stderr', `  ✕ ${pkg} install error: ${errDetail}`);
             }
