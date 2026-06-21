@@ -1,5 +1,4 @@
 # nixpacks.toml — Railway build configuration
-# Ensures Python 3 + pip + Node.js + common system libs are available.
 
 [phases.setup]
 nixPkgs = [
@@ -8,12 +7,12 @@ nixPkgs = [
   'python312Packages.pip',
   'nodejs_22',
 
-  # --- Build tools (C extensions compile করতে লাগে) ---
+  # --- Build tools ---
   'gcc',
   'gnumake',
   'pkg-config',
 
-  # --- Python common deps: cryptography, Pillow, lxml, psycopg2 ইত্যাদির জন্য ---
+  # --- Common system libs (cryptography, Pillow, lxml, psycopg2 etc.) ---
   'openssl',
   'libffi',
   'zlib',
@@ -22,16 +21,11 @@ nixPkgs = [
   'freetype',
   'libxml2',
   'libxslt',
-  'postgresql',
 
-  # --- Headless browser / Selenium / Playwright ---
-  'chromium',
-  'chromedriver',
-
-  # --- Media processing (pydub, moviepy, yt-dlp) ---
+  # --- Media (yt-dlp, pydub, moviepy) ---
   'ffmpeg',
 
-  # --- Bash scripts ---
+  # --- Utilities ---
   'bash',
   'curl',
   'wget',
@@ -39,11 +33,7 @@ nixPkgs = [
 ]
 
 [phases.install]
-cmds = [
-  'npm install',
-  # pip নিজেও আপডেট করো যাতে latest packages ইনস্টল হয়
-  'python3 -m pip install --upgrade pip --quiet',
-]
+cmds = ['npm install']
 
 [start]
 cmd = 'node server.js'
