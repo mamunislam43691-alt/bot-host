@@ -11,6 +11,7 @@
   let selectedLanguage = 'python';
   let selectedFile = null;
   let pollingTimer = null;
+  let statsTimer = null;
 
   const $ = (sel, root = document) => root.querySelector(sel);
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
@@ -136,6 +137,25 @@
       </div>
 
       <div class="container" style="padding-bottom:60px">
+        <!-- Stats Panel -->
+        <div id="statsPanel" class="stats-panel">
+          <div class="stats-header">
+            <span>📊 সার্ভার রিসোর্স</span>
+            <span id="statsUpdated" class="muted" style="font-size:11px"></span>
+          </div>
+          <div class="stats-grid" id="statsGrid">
+            <div class="stat-card"><div class="stat-ic">⚙️</div><div class="stat-label">CPU ব্যবহার</div><div class="stat-val" id="s_cpu">—</div><div class="stat-bar-wrap"><div class="stat-bar" id="sb_cpu"></div></div></div>
+            <div class="stat-card"><div class="stat-ic">🧠</div><div class="stat-label">RAM ব্যবহার</div><div class="stat-val" id="s_mem">—</div><div class="stat-bar-wrap"><div class="stat-bar" id="sb_mem"></div></div></div>
+            <div class="stat-card"><div class="stat-ic">🤖</div><div class="stat-label">বট চলছে</div><div class="stat-val" id="s_bots">—</div><div class="stat-sub" id="s_bots_sub"></div></div>
+            <div class="stat-card"><div class="stat-ic">🕐</div><div class="stat-label">Panel চালু আছে</div><div class="stat-val" id="s_uptime">—</div><div class="stat-sub" id="s_uptime_sub"></div></div>
+          </div>
+          <!-- বিস্তারিত -->
+          <div class="stats-detail" id="statsDetail" style="display:none">
+            <div class="stats-detail-grid" id="statsDetailGrid"></div>
+          </div>
+          <button class="btn btn-sm btn-ghost" id="statsToggleDetail" style="width:100%;margin-top:8px;justify-content:center;font-size:12px">▼ বিস্তারিত দেখুন</button>
+        </div>
+
         <!-- Credential banner -->
         <div class="cred-banner">
           <div>
@@ -311,6 +331,20 @@
     setupSocket();
     loadBots();
     startPolling();
+    startStats();
+
+    // stats বিস্তারিত toggle
+    document.getElementById('statsToggleDetail').addEventListener('click', () => {
+      const det = document.getElementById('statsDetail');
+      const btn = document.getElementById('statsToggleDetail');
+      if (det.style.display === 'none') {
+        det.style.display = 'block';
+        btn.textContent = '▲ বিস্তারিত লুকান';
+      } else {
+        det.style.display = 'none';
+        btn.textContent = '▼ বিস্তারিত দেখুন';
+      }
+    });
   }
 
   // ---------- Socket.IO ----------
@@ -791,6 +825,7 @@
     token = null; user = null;
     localStorage.removeItem('token');
     if (pollingTimer) clearInterval(pollingTimer);
+    if (statsTimer) clearInterval(statsTimer);
     location.hash = '';
     route();
   }
@@ -799,6 +834,94 @@
   function startPolling() {
     if (pollingTimer) clearInterval(pollingTimer);
     pollingTimer = setInterval(loadBots, 3000);
+  }
+
+  // ---------- Stats ----------
+  function startStats() {
+    if (statsTimer) clearInterval(statsTimer);
+    loadStats();
+    statsTimer = setInterval(loadStats, 5000);
+  }
+
+  function setBar(barId, pct) {
+    const el = document.getElementById(barId);
+    if (!el) return;
+    el.style.width = Math.min(100, pct) + '%';
+    el.className = 'stat-bar ' + (pct >= 90 ? 'danger' : pct >= 70 ? 'warn' : 'ok');
+  }
+
+  async function loadStats() {
+    try {
+      const d = await api('/api/stats');
+      const sv = d.server;
+      const bv = d.bots;
+
+      // CPU
+      const cpuEl = document.getElementById('s_cpu');
+      if (cpuEl) cpuEl.textContent = sv.cpuPercent + '%';
+      setBar('sb_cpu', sv.cpuPercent);
+
+      // RAM
+      const memEl = document.getElementById('s_mem');
+      if (memEl) memEl.textContent = sv.mem.usedFmt + ' / ' + sv.mem.totalFmt;
+      setBar('sb_mem', sv.mem.percent);
+
+      // Bots
+      const botsEl = document.getElementById('s_bots');
+      if (botsEl) botsEl.textContent = bv.running + ' / ' + bv.total;
+      const botsSub = document.getElementById('s_bots_sub');
+      if (botsSub) botsSub.textContent = bv.stopped + 'টি বন্ধ';
+
+      // Uptime
+      const upEl = document.getElementById('s_uptime');
+      if (upEl) upEl.textContent = sv.uptimeFmt;
+      const upSub = document.getElementById('s_uptime_sub');
+      if (upSub) upSub.textContent = 'OS: ' + sv.osUptimeFmt;
+
+      // updated time
+      const updEl = document.getElementById('statsUpdated');
+      if (updEl) updEl.textContent = '🔄 ' + new Date().toLocaleTimeString();
+
+      // বিস্তারিত section
+      const detGrid = document.getElementById('statsDetailGrid');
+      if (detGrid) {
+        const rows = [
+          ['🖥️ CPU মডেল',     sv.cpuModel],
+          ['🔢 CPU কোর',      sv.cpuCores + ' টি'],
+          ['💾 মোট RAM',      sv.mem.totalFmt],
+          ['✅ ব্যবহৃত RAM',  sv.mem.usedFmt + ' (' + sv.mem.percent + '%)'],
+          ['🆓 মুক্ত RAM',    sv.mem.freeFmt],
+          ['🤖 Panel RAM',    sv.panelMem.rssFmt],
+          ['⚡ Node.js',      sv.nodeVersion],
+          ['🖧 Platform',     sv.platform + ' / ' + sv.arch],
+          ['🕐 Panel Uptime', sv.uptimeFmt],
+          ['🖥️ OS Uptime',   sv.osUptimeFmt],
+        ];
+
+        // চলমান বটের memory যোগ করো
+        if (bv.list && bv.list.length) {
+          rows.push(['', '']);  // divider
+          rows.push(['🤖 চলমান বটসমূহ', '']);
+          bv.list.forEach(b => {
+            const uptime = b.uptimeSec >= 3600
+              ? Math.floor(b.uptimeSec / 3600) + 'h ' + Math.floor((b.uptimeSec % 3600) / 60) + 'm'
+              : Math.floor(b.uptimeSec / 60) + 'm ' + (b.uptimeSec % 60) + 's';
+            rows.push([
+              `  └ ${escapeHtml(b.name)}`,
+              (b.memMB ? b.memMB + ' MB' : 'N/A') + ' · PID ' + (b.pid || '?') + ' · ' + uptime
+            ]);
+          });
+        }
+
+        detGrid.innerHTML = rows.map(([k, v]) =>
+          k === ''
+            ? '<div class="det-divider"></div><div></div>'
+            : `<div class="det-key">${k}</div><div class="det-val">${escapeHtml(String(v))}</div>`
+        ).join('');
+      }
+    } catch (e) {
+      // stats load ব্যর্থ হলে চুপ থাকো (সার্ভার ব্যস্ত হতে পারে)
+    }
   }
 
   // ---------- Init ----------

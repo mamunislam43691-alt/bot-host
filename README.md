@@ -1,140 +1,272 @@
 # 🤖 Bot Hosting Panel
 
-একটি সম্পূর্ণ **মাল্টি-ইউজার বট/স্ক্রিপ্ট হোস্টিং প্যানেল**। ইউজাররা রেজিস্টার করে নিজেদের **Python / Node.js / Bash** স্ক্রিপ্ট বা বট আপলোড করে চালাতে পারবে — ওয়েব UI থেকে অথবা REST API দিয়ে। Railway-এ ১-ক্লিকে ডিপ্লয়যোগ্য।
+Python / Node.js / Bash বট হোস্ট করার জন্য সম্পূর্ণ প্যানেল।  
+Web UI + REST API — দুটো দিয়েই সব কিছু করা যায়।
 
-## ✨ ফিচার
+---
 
-- 🔐 **মাল্টি-ইউজার** — রেজিস্ট্রেশন/লগইন, প্রত্যেকের আলাদা **API Key** ও **Base URL**
-- 📤 **ফাইল আপলোড** — `.py` / `.js` / `.mjs` / `.sh` একক ফাইল, অথবা পুরো প্রজেক্ট `.zip` (requirements.txt বা package.json সহ অটো-ইনস্টল)
-- 🌐 **ভাষা সিলেক্ট** — Python / Node.js / Bash
-- ▶️ **Start / Stop / Restart / Delete** — প্রতিটি বট আলাদা সাবপ্রসেসে চলে
-- 📜 **রিয়েল-টাইম লগ** — Socket.IO দিয়ে লাইভ কনসোল
-- ♻️ **অটো-রিস্টার্ট** — ক্র্যাশ হলে স্বয়ংক্রিয়ভাবে আবার চালু (ঐচ্ছিক)
-- 🔌 **সম্পূর্ণ REST API** — সব কাজ API Key দিয়ে করা যায়
-- ⚙️ **প্রতি-বট এনভায়রনমেন্ট ভেরিয়েবল** — টোকেন/সিক্রেট সেফলি সংরক্ষণ
-- 🎨 **সুন্দর ডার্ক UI** — রেসপন্সিভ, মোবাইল-ফ্রেন্ডলি
+## 🚀 Quick Start
 
-## 🚀 লোকালে চালানো
+### ১. Deploy করুন (প্রথমবার)
 
 ```bash
-# ১. ডিপেন্ডেন্সি ইনস্টল
-npm install
-
-# ২. env ফাইল তৈরি
-cp .env.example .env
-#   এরপর JWT_SECRET ও ADMIN_PASSWORD পরিবর্তন করুন
-
-# ৩. চালু করুন
-npm start
-```
-
-ব্রাউজারে যান: **http://localhost:3000**
-
-প্রথমবার চালু হলে অ্যাডমিন একাউন্ট স্বয়ংক্রিয়ভাবে তৈরি হবে:
-- ইউজারনেম: `ADMIN_USERNAME` (ডিফল্ট `admin`)
-- পাসওয়ার্ড: `ADMIN_PASSWORD` (ডিফল্ট `admin123`)
-
-> ⚠️ প্রোডাকশনে যাওয়ার আগে অবশ্যই `ADMIN_PASSWORD` ও `JWT_SECRET` পরিবর্তন করুন।
-
-## ☁️ Railway-এ ডিপ্লয় করুন
-
-[![Deploy on Railway](https://railway.app/button.svg)](https://railway.com/new)
-
-### ধাপসমূহ:
-1. Railway-এ লগইন করে **New Project → Deploy from GitHub repo** (এই কোড push করুন) অথবা "Deploy from GitHub" এ গিয়ে রিপোজিটরি সিলেক্ট করুন।
-2. Railway স্বয়ংক্রিয়ভাবে `package.json` থেকে `npm install` ও `npm start` রান করবে।
-3. **Variables** ট্যাবে এই env ভেরিয়েবলগুলো সেট করুন:
-   - `JWT_SECRET` — একটি দীর্ঘ র্যান্ডম স্ট্রিং
-   - `ADMIN_USERNAME` — অ্যাডমিন ইউজারনেম (যেমন `admin`)
-   - `ADMIN_PASSWORD` — শক্তিশালী পাসওয়ার্ড
-   - `DATA_DIR` — পারসিস্টেন্ট ভলিউম পাথ (যেমন `/data`)
-   - `DISABLE_SIGNUP` — পাবলিক রেজিস্ট্রেশন বন্ধ করতে `true` সেট করুন (শুধু admin-managed)
-4. **Settings → Networking → Generate Domain** ক্লিক করে একটি পাবলিক URL নিন।
-5. **পারসিস্টেন্ট ভলিউম** (গুরুত্বপূর্ণ!):
-   - Settings → Volumes → **Add Volume**
-   - Mount path: `/data`
-   - এটা ছাড়া রিডিপ্লয় হলে DB ও আপলোড করা বট মুছে যাবে।
-6. আপনার পাবলিক URL-এ গেলেই প্যানেল চালু পাবেন।
-
-> দ্রষ্টব্য: Railway free/hobby plan-এ কিছু স্লিপ-অ্যাটাচড স্টোরেজ থাকে না — ডেটা রাখা জরুরি হলে **Volume** যুক্ত করতে ভুলবেন না।
-
-## 📡 REST API
-
-সব এন্ডপয়েন্টে অথেনটিকেশন লাগে — Header:
-```
-X-API-Key: bh_xxxxxxxxxxxxxxxx
-```
-(অথবা `Authorization: Bearer <jwt>`)
-
-### অথ
-| Method | Endpoint | বর্ণনা |
-|--------|----------|--------|
-| POST | `/api/auth/register` | রেজিস্ট্রেশন — `{username, password}` → `{token, user}` |
-| POST | `/api/auth/login` | লগইন → JWT ও user (API Key সহ) |
-| GET  | `/api/auth/me` | বর্তমান ইউজার তথ্য |
-| POST | `/api/auth/regenerate-key` | নতুন API Key তৈরি |
-
-### বট ম্যানেজমেন্ট
-| Method | Endpoint | বর্ণনা |
-|--------|----------|--------|
-| GET | `/api/bots` | বট লিস্ট |
-| GET | `/api/bots/meta/languages` | সমর্থিত ভাষা |
-| POST | `/api/bots/upload` | ফাইল/জিপ আপলোড (multipart: `file`, `name`, `language`, `autoRestart`, `entryFile`) |
-| GET | `/api/bots/:id` | একটি বটের তথ্য |
-| PATCH | `/api/bots/:id` | সেটিংস আপডেট (`name`, `env`, `autoRestart`) |
-| POST | `/api/bots/:id/start` | চালু |
-| POST | `/api/bots/:id/stop` | বন্ধ |
-| POST | `/api/bots/:id/restart` | রিস্টার্ট |
-| GET | `/api/bots/:id/logs` | লগ (`?after=<id>&limit=500`) |
-| DELETE | `/api/bots/:id/logs` | লগ মুছুন |
-| DELETE | `/api/bots/:id` | বট ডিলিট |
-
-### এক-কলে ডিপ্লয় (CI ফ্রেন্ডলি)
-`POST /api/deploy` (multipart) — আপলোড করে একসাথে চালুও করে দেয়।
-
-```bash
-curl -H "X-API-Key: bh_xxx" \
+curl -X POST https://YOUR_DOMAIN/api/deploy \
+  -H "X-API-Key: YOUR_API_KEY" \
   -F "file=@bot.py" \
-  -F "name=MyBot" \
-  -F "language=python" \
-  -F "start=1" \
-  -F "env_BOT_TOKEN=123456:ABC" \
-  https://your-app.up.railway.app/api/deploy
+  -F "name=My Bot"
 ```
 
-রেসপন্সে `bot.id`, `status`, `baseUrl`, `logsUrl` পাবেন।
-
-## 📂 প্রজেক্ট স্ট্রাকচার
-
-```
-bot host/
-├── server.js              # Express + Socket.IO এন্ট্রিপয়েন্ট
-├── package.json
-├── railway.json / Procfile
-├── .env.example
-├── db/
-│   └── store.js           # SQLite (users, bots, logs)
-└── src/
-    ├── config.js
-    ├── auth.js            # JWT + API Key মিডলওয়্যার
-    ├── languages.js       # রানটাইম কনফিগ
-    ├── processManager.js  # সাবপ্রসেস ম্যানেজার
-    └── routes/
-        ├── bots.js        # বট CRUD + lifecycle
-        └── deploy.js      # এক-কলে ডিপ্লয়
-└── public/
-    ├── index.html
-    ├── style.css          # ডার্ক UI
-    └── app.js             # ফ্রন্টএন্ড SPA
+**Response:**
+```json
+{
+  "ok": true,
+  "botId": "abc123-...",
+  "apiKey": "YOUR_API_KEY",
+  "bot": { "id": "abc123-...", "name": "My Bot", "status": "running", ... },
+  "endpoints": {
+    "start":   { "method": "POST",   "url": "https://YOUR_DOMAIN/api/bots/abc123-.../start" },
+    "stop":    { "method": "POST",   "url": "https://YOUR_DOMAIN/api/bots/abc123-.../stop" },
+    "restart": { "method": "POST",   "url": "https://YOUR_DOMAIN/api/bots/abc123-.../restart" },
+    "logs":    { "method": "GET",    "url": "https://YOUR_DOMAIN/api/bots/abc123-.../logs" },
+    "delete":  { "method": "DELETE", "url": "https://YOUR_DOMAIN/api/bots/abc123-..." }
+  }
+}
 ```
 
-## 🔒 নিরাপত্তা নোট
+> **Deploy করলেই `botId` পাবেন** — এই ID দিয়ে নিচের সব API call করুন।
 
-- স্ক্রিপ্ট সাবপ্রসেস হিসেবে চলে — প্রতিটির আলাদা ওয়ার্কিং ডিরেক্টরি।
-- পাবলিক রেজিস্ট্রেশন বন্ধ করতে `DISABLE_SIGNUP=true`।
-- কোনো ইউজারের বট অন্য ইউজার দেখতে/চালাতে পারবে না (শুধু admin সব দেখতে পারে)।
-- উচ্চ-নিরাপত্তার প্রয়োজনে (একাধিক ইউজারের untrusted code) Docker কন্টেইনার আইসোলেশন বিবেচনা করুন।
+---
 
-## 📜 লাইসেন্স
+## 🔑 Authentication
 
-MIT
+সব API call-এ এই দুটোর যেকোনো একটা দিন:
+
+| পদ্ধতি | Header |
+|--------|--------|
+| API Key | `X-API-Key: YOUR_API_KEY` |
+| JWT Token | `Authorization: Bearer YOUR_JWT_TOKEN` |
+
+API Key পাবেন → Web Panel → Dashboard → "আপনার API Key" সেকশনে।
+
+---
+
+## 📡 সব API Endpoint
+
+**Base URL:** `https://YOUR_DOMAIN`
+
+### Auth
+
+| Method | Endpoint | কাজ |
+|--------|----------|-----|
+| `POST` | `/api/auth/register` | নতুন একাউন্ট |
+| `POST` | `/api/auth/login` | লগইন → JWT token |
+| `GET`  | `/api/auth/me` | নিজের তথ্য |
+| `POST` | `/api/auth/regenerate-key` | নতুন API Key |
+
+---
+
+### Stats (সার্ভার রিসোর্স)
+
+| Method | Endpoint | কাজ |
+|--------|----------|-----|
+| `GET` | `/api/stats` | CPU, RAM, uptime, চলমান বটের memory |
+
+**Response উদাহরণ:**
+```json
+{
+  "server": {
+    "cpuCores": 4,
+    "cpuPercent": 23.5,
+    "mem": { "totalFmt": "8.00 GB", "usedFmt": "5.2 GB", "percent": 65.0 },
+    "panelMem": { "rssFmt": "45.2 MB" },
+    "uptimeFmt": "2h 30m"
+  },
+  "bots": {
+    "total": 3, "running": 2, "totalMemMB": 120.5,
+    "list": [{ "name": "My Bot", "pid": 1234, "memMB": 85.2, "uptimeSec": 3600 }]
+  }
+}
+```
+
+---
+
+### Deploy
+
+| Method | Endpoint | কাজ |
+|--------|----------|-----|
+| `POST` | `/api/deploy` | বট আপলোড + চালু (botId পাবেন) |
+| `POST` | `/api/deploy/:botId/update` | কোড আপডেট + অটো-রিস্টার্ট |
+
+**Deploy করার সময় যা পাঠাতে পারেন:**
+
+```bash
+curl -X POST https://YOUR_DOMAIN/api/deploy \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -F "file=@bot.py" \
+  -F "name=My Telegram Bot" \
+  -F "autoRestart=1" \
+  -F "requirements=pyTelegramBotAPI\nrequests" \
+  -F "env_BOT_TOKEN=12345:ABC..." \
+  -F "start=1"
+```
+
+**কোড আপডেট করুন:**
+
+```bash
+curl -X POST https://YOUR_DOMAIN/api/deploy/BOT_ID/update \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -F "file=@bot_new.py"
+```
+
+---
+
+### বট কন্ট্রোল (সব ক্ষেত্রে `BOT_ID` লাগবে)
+
+| Method | Endpoint | কাজ |
+|--------|----------|-----|
+| `GET`    | `/api/bots` | সব বটের লিস্ট |
+| `GET`    | `/api/bots/:botId` | একটি বটের বিস্তারিত |
+| `POST`   | `/api/bots/:botId/start` | বট চালু করুন |
+| `POST`   | `/api/bots/:botId/stop` | বট বন্ধ করুন |
+| `POST`   | `/api/bots/:botId/restart` | বট রিস্টার্ট করুন |
+| `PATCH`  | `/api/bots/:botId` | সেটিংস আপডেট করুন |
+| `DELETE` | `/api/bots/:botId` | বট ডিলিট করুন |
+
+---
+
+### লগ
+
+| Method | Endpoint | কাজ |
+|--------|----------|-----|
+| `GET`    | `/api/bots/:botId/logs` | লগ দেখুন |
+| `GET`    | `/api/bots/:botId/logs/download` | লগ .txt ডাউনলোড |
+| `DELETE` | `/api/bots/:botId/logs` | লগ মুছুন |
+
+লগ query params: `?limit=500&after=0`
+
+---
+
+### ফাইল এডিটর
+
+| Method | Endpoint | কাজ |
+|--------|----------|-----|
+| `GET` | `/api/bots/:botId/files` | ফাইল লিস্ট |
+| `GET` | `/api/bots/:botId/files?file=main.py` | ফাইলের কোড পড়ুন |
+| `PUT` | `/api/bots/:botId/files` | ফাইল সেভ করুন |
+| `GET` | `/api/bots/:botId/download` | সব ফাইল .zip ডাউনলোড |
+
+---
+
+## 💡 ব্যবহারের উদাহরণ
+
+### Python দিয়ে বট কন্ট্রোল
+
+```python
+import requests
+
+BASE_URL = "https://YOUR_DOMAIN"
+API_KEY  = "YOUR_API_KEY"
+BOT_ID   = "abc123-..."  # deploy response থেকে পাওয়া
+
+headers = {"X-API-Key": API_KEY}
+
+# বট চালু
+requests.post(f"{BASE_URL}/api/bots/{BOT_ID}/start", headers=headers)
+
+# বট বন্ধ
+requests.post(f"{BASE_URL}/api/bots/{BOT_ID}/stop", headers=headers)
+
+# বট রিস্টার্ট
+requests.post(f"{BASE_URL}/api/bots/{BOT_ID}/restart", headers=headers)
+
+# লগ দেখুন
+logs = requests.get(f"{BASE_URL}/api/bots/{BOT_ID}/logs", headers=headers).json()
+for log in logs["logs"]:
+    print(f"[{log['stream']}] {log['text']}")
+
+# বটের status
+info = requests.get(f"{BASE_URL}/api/bots/{BOT_ID}", headers=headers).json()
+print(info["bot"]["status"])  # "running" বা "stopped"
+
+# কোড আপডেট + রিস্টার্ট
+with open("bot_new.py", "rb") as f:
+    requests.post(
+        f"{BASE_URL}/api/deploy/{BOT_ID}/update",
+        headers=headers,
+        files={"file": f}
+    )
+
+# বট ডিলিট
+requests.delete(f"{BASE_URL}/api/bots/{BOT_ID}", headers=headers)
+```
+
+### curl দিয়ে
+
+```bash
+API_KEY="YOUR_API_KEY"
+BOT_ID="abc123-..."
+BASE="https://YOUR_DOMAIN"
+
+# চালু
+curl -X POST "$BASE/api/bots/$BOT_ID/start" -H "X-API-Key: $API_KEY"
+
+# বন্ধ
+curl -X POST "$BASE/api/bots/$BOT_ID/stop" -H "X-API-Key: $API_KEY"
+
+# রিস্টার্ট
+curl -X POST "$BASE/api/bots/$BOT_ID/restart" -H "X-API-Key: $API_KEY"
+
+# লগ দেখুন (শেষ ১০০ লাইন)
+curl "$BASE/api/bots/$BOT_ID/logs?limit=100" -H "X-API-Key: $API_KEY"
+
+# সেটিংস আপডেট (env variable যোগ)
+curl -X PATCH "$BASE/api/bots/$BOT_ID" \
+  -H "X-API-Key: $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"autoRestart": true, "env": {"BOT_TOKEN": "12345:ABC..."}}'
+
+# ডিলিট
+curl -X DELETE "$BASE/api/bots/$BOT_ID" -H "X-API-Key: $API_KEY"
+```
+
+---
+
+## ⚙️ সেটিংস আপডেট (PATCH)
+
+```bash
+curl -X PATCH "https://YOUR_DOMAIN/api/bots/BOT_ID" \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "নতুন নাম",
+    "autoRestart": true,
+    "env": {
+      "BOT_TOKEN": "12345:ABC...",
+      "WEBHOOK_URL": "https://..."
+    }
+  }'
+```
+
+---
+
+## 🌐 Environment Variables (সার্ভার কনফিগ)
+
+| Variable | Default | কাজ |
+|----------|---------|-----|
+| `PORT` | `3000` | সার্ভার পোর্ট |
+| `JWT_SECRET` | random | JWT signing key |
+| `ADMIN_USERNAME` | `admin` | প্রথম admin-এর নাম |
+| `ADMIN_PASSWORD` | `admin123` | প্রথম admin-এর পাসওয়ার্ড |
+| `DISABLE_SIGNUP` | `false` | নতুন রেজিস্ট্রেশন বন্ধ রাখতে |
+| `MAX_UPLOAD_MB` | `50` | সর্বোচ্চ ফাইল সাইজ |
+| `DATA_DIR` | `./data` | ডেটা ফোল্ডার |
+
+---
+
+## 📦 Supported Languages
+
+| Language | Extension | Runtime |
+|----------|-----------|---------|
+| Python | `.py` | `python3` / `python` |
+| Node.js | `.js` / `.mjs` | `node` |
+| Bash | `.sh` | `bash` |

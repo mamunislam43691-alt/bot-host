@@ -118,7 +118,7 @@ router.get('/me', requireAuth, (req, res) => {
 // Regenerate API key
 router.post('/regenerate-key', requireAuth, (req, res) => {
   const newKey = config.genApiKey();
-  store.db.prepare('UPDATE users SET api_key = ? WHERE id = ?').run(newKey, req.user.id);
+  store.updateUser(req.user.id, { api_key: newKey });
   const user = store.getUserById(req.user.id);
   res.json({ apiKey: newKey, user: publicUser(user) });
 });

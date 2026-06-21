@@ -14,6 +14,7 @@ const pm = require('./src/processManager');
 const { router: authRouter, ensureAdminBootstrap, requireAuth } = require('./src/auth');
 const botsRouter = require('./src/routes/bots');
 const deployRouter = require('./src/routes/deploy');
+const statsRouter = require('./src/routes/stats');
 
 // ---------- App ----------
 const app = express();
@@ -72,8 +73,9 @@ app.get('/health', (req, res) => res.json({ ok: true, uptime: process.uptime() }
 
 // ---------- API routes ----------
 app.use('/api/auth', authRouter);
-app.use('/api/bots', requireAuth, botsRouter);   // bot endpoints require auth
+app.use('/api/bots', requireAuth, botsRouter);
 app.use('/api/deploy', requireAuth, deployRouter);
+app.use('/api/stats', requireAuth, statsRouter);
 
 // catch-all API 404
 app.use('/api', (req, res) => res.status(404).json({ error: 'Not found' }));
