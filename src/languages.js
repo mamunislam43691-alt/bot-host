@@ -21,19 +21,64 @@ function findPython() {
 }
 
 function runPipInstall(workdir, argsStr) {
-  const cmds = [
+  // system-wide install (--user বা sudo ছাড়া) চেষ্টা করো আগে
+  // Railway/Linux-এ root হিসেবে চলে তাই সরাসরি install হয়
+  const systemCmds = [
     `pip3 install ${argsStr}`,
     `pip install ${argsStr}`,
     `python3 -m pip install ${argsStr}`,
     `python -m pip install ${argsStr}`,
   ];
-  const fullCmd = cmds.map(c => `(${c})`).join(' || ');
+  const fullCmd = systemCmds.map(c => `(${c})`).join(' || ');
   execSync(fullCmd, {
     cwd: workdir,
     stdio: 'pipe',
-    timeout: 10 * 60 * 1000,  // 10 মিনিট (বড় package-এর জন্য)
+    timeout: 10 * 60 * 1000,
     shell: true,
   });
+}
+
+// compiled packages (C extensions) যাদের --target দিলে কাজ করে না
+const SYSTEM_INSTALL_PKGS = new Set([
+  'grpcio', 'grpcio-tools', 'grpc',
+  'firebase-admin',
+  'google-cloud-firestore', 'google-cloud-storage', 'google-cloud-bigquery',
+  'google-api-python-client', 'google-auth', 'google-auth-oauthlib',
+  'tensorflow', 'torch', 'torchvision', 'torchaudio',
+  'numpy', 'scipy', 'pandas',
+  'opencv-python', 'opencv-python-headless', 'cv2',
+  'scikit-learn', 'sklearn',
+  'Pillow', 'pillow',
+  'lxml',
+  'cryptography',
+  'PyNaCl', 'nacl',
+  'psycopg2', 'psycopg2-binary',
+  'mysqlclient',
+  'ujson',
+  'msgpack',
+  'pydantic',
+  'aiohttp',
+  'httptools',
+  'uvloop',
+  'websockets',
+  'yarl',
+  'multidict',
+  'charset-normalizer',
+  'MarkupSafe',
+  'pyzmq', 'zmq',
+  'Cython',
+  'cffi',
+  'regex',
+  'rapidfuzz',
+  'orjson',
+  'frozenlist',
+  'aiosignal',
+]);
+
+function needsSystemInstall(pkg) {
+  // package name থেকে version/extras বাদ দাও
+  const base = pkg.replace(/\[.*\]/, '').split(/[=><!\s]/)[0].trim();
+  return SYSTEM_INSTALL_PKGS.has(base) || SYSTEM_INSTALL_PKGS.has(base.toLowerCase());
 }
 
 function installPythonPackages(workdir, depsString) {
@@ -44,14 +89,25 @@ function installPythonPackages(workdir, depsString) {
     .filter(s => !s.startsWith('#'));
   if (!pkgs.length) return;
 
-  // .deps ফোল্ডার তৈরি করো যদি না থাকে
-  const depsDir = path.join(workdir, '.deps');
-  if (!fs.existsSync(depsDir)) fs.mkdirSync(depsDir, { recursive: true });
+  // ২ ভাগে ভাগ করো:
+  // ১. compiled/system packages → system-wide install (no --target)
+  // ২. pure Python packages → --target .deps (per-bot isolation)
+  const systemPkgs = pkgs.filter(p => needsSystemInstall(p));
+  const localPkgs  = pkgs.filter(p => !needsSystemInstall(p));
 
-  runPipInstall(
-    workdir,
-    `--target "${depsDir}" --no-cache-dir --disable-pip-version-check --upgrade ${pkgs.map(p => `"${p}"`).join(' ')}`
-  );
+  // system-wide install
+  if (systemPkgs.length) {
+    const args = `--no-cache-dir --disable-pip-version-check --quiet ${systemPkgs.map(p => `"${p}"`).join(' ')}`;
+    runPipInstall(workdir, args);
+  }
+
+  // per-bot .deps install
+  if (localPkgs.length) {
+    const depsDir = path.join(workdir, '.deps');
+    if (!fs.existsSync(depsDir)) fs.mkdirSync(depsDir, { recursive: true });
+    const args = `--target "${depsDir}" --no-cache-dir --disable-pip-version-check --quiet ${localPkgs.map(p => `"${p}"`).join(' ')}`;
+    runPipInstall(workdir, args);
+  }
 }
 
 // =============================================================
@@ -406,10 +462,29 @@ const LANGUAGES = {
     available: () => !!findPython(),
     installDeps: (workdir) => {
       const req = path.join(workdir, 'requirements.txt');
-      if (fs.existsSync(req)) {
+      if (!fs.existsSync(req)) return;
+
+      // requirements.txt থেকে package list পড়ো
+      const pkgList = fs.readFileSync(req, 'utf8')
+        .split('\n')
+        .map(l => l.trim())
+        .filter(l => l && !l.startsWith('#') && !l.startsWith('-'));
+
+      // compiled vs pure ভাগ করো
+      const systemPkgs = pkgList.filter(p => needsSystemInstall(p));
+      const localPkgs  = pkgList.filter(p => !needsSystemInstall(p));
+
+      if (systemPkgs.length) {
+        runPipInstall(workdir,
+          `--no-cache-dir --disable-pip-version-check --quiet ${systemPkgs.map(p => `"${p}"`).join(' ')}`
+        );
+      }
+      if (localPkgs.length) {
         const depsDir = path.join(workdir, '.deps');
         if (!fs.existsSync(depsDir)) fs.mkdirSync(depsDir, { recursive: true });
-        runPipInstall(workdir, `--target "${depsDir}" --no-cache-dir --disable-pip-version-check --upgrade -r requirements.txt`);
+        runPipInstall(workdir,
+          `--target "${depsDir}" --no-cache-dir --disable-pip-version-check --quiet ${localPkgs.map(p => `"${p}"`).join(' ')}`
+        );
       }
     },
   },
@@ -456,4 +531,5 @@ module.exports = {
   installPythonPackages,
   autoDetectDeps,
   mergeWithRequirements,
+  needsSystemInstall,
 };

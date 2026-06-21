@@ -2,6 +2,28 @@
 // Express HTTP API + static web UI + Socket.IO for live logs.
 require('dotenv').config();
 
+// compiled Python extensions (.so files) খুঁজে পেতে LD_LIBRARY_PATH সেট করো
+// grpc, numpy, cryptography ইত্যাদি Nix store থেকে libstdc++ খোঁজে
+if (process.platform !== 'win32') {
+  const { execSync } = require('child_process');
+  try {
+    // Nix-এ gcc lib path খুঁজে বের করো
+    const gccLib = execSync('gcc -print-file-name=libstdc++.so.6 2>/dev/null || echo ""', {
+      encoding: 'utf8', shell: true, timeout: 3000,
+    }).trim();
+    if (gccLib && gccLib !== 'libstdc++.so.6') {
+      const libDir = require('path').dirname(gccLib);
+      const current = process.env.LD_LIBRARY_PATH || '';
+      const paths = [libDir, '/usr/lib', '/usr/local/lib', '/lib'].filter(Boolean);
+      const merged = [...new Set([...paths, ...current.split(':').filter(Boolean)])].join(':');
+      process.env.LD_LIBRARY_PATH = merged;
+      console.log(`[boot] LD_LIBRARY_PATH=${merged.substring(0, 80)}...`);
+    }
+  } catch (_) {
+    // LD_LIBRARY_PATH set ব্যর্থ হলেও চলবে
+  }
+}
+
 const http = require('http');
 const path = require('path');
 const express = require('express');

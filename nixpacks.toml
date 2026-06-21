@@ -7,18 +7,25 @@ nixPkgs = [
   'python312Packages.pip',
   'nodejs_22',
 
-  # --- Build tools ---
+  # --- C/C++ stdlib — grpc, numpy, opencv, cryptography এর জন্য অবশ্যই দরকার ---
   'gcc',
+  'stdenv.cc.cc.lib',
   'gnumake',
   'pkg-config',
 
-  # --- Common system libs (cryptography, Pillow, lxml, psycopg2 etc.) ---
+  # --- SSL / crypto ---
   'openssl',
   'libffi',
+
+  # --- Compression ---
   'zlib',
+
+  # --- Image libs (Pillow, opencv) ---
   'libjpeg',
   'libpng',
   'freetype',
+
+  # --- XML (lxml) ---
   'libxml2',
   'libxslt',
 

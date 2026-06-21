@@ -138,41 +138,41 @@ function start(bot, isAutoRestart = false) {
         if (fs.existsSync(reqFile)) {
           emit(bot.id, 'system', `📦 requirements.txt ইনস্টল হচ্ছে...`);
           try {
+            // installPythonPackages নিজেই system/local ভাগ করে install করবে
             installPythonPackages(workdir, fs.readFileSync(reqFile, 'utf8'));
             emit(bot.id, 'system', '✓ requirements.txt ইনস্টল সম্পন্ন।');
           } catch (e) {
-            emit(bot.id, 'system', `⚠ requirements.txt bulk install ব্যর্থ। প্রতিটা আলাদা চেষ্টা করছি...`);
-            // bulk ব্যর্থ হলে একটা একটা করে install করো
+            // bulk fail হলে একটা একটা করে চেষ্টা করো
+            emit(bot.id, 'system', `⚠ Bulk install ব্যর্থ, একটা একটা করে চেষ্টা করছি...`);
             const pkgs = fs.readFileSync(reqFile, 'utf8')
-              .split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('#'));
-            let failedPkgs = [];
+              .split('\n').map(l => l.trim())
+              .filter(l => l && !l.startsWith('#') && !l.startsWith('-'));
+            let failed = [];
             for (const pkg of pkgs) {
               try {
                 installPythonPackages(workdir, pkg);
                 emit(bot.id, 'system', `  ✓ ${pkg}`);
               } catch (_) {
-                failedPkgs.push(pkg);
-                emit(bot.id, 'system', `  ✕ ${pkg} ইনস্টল ব্যর্থ`);
+                failed.push(pkg);
+                emit(bot.id, 'system', `  ✕ ${pkg} — ইনস্টল ব্যর্থ`);
               }
             }
-            if (failedPkgs.length) {
-              emit(bot.id, 'system', `⚠ ইনস্টল হয়নি: ${failedPkgs.join(', ')} — স্ক্রিপ্টে error হতে পারে`);
+            if (failed.length) {
+              emit(bot.id, 'system', `⚠ ইনস্টল হয়নি: ${failed.join(', ')}`);
             }
           }
         }
 
-        // ২. সব .py ফাইল scan করে অটো-ডিটেক্ট (requirements.txt-এ নেই এমন)
+        // ২. সব .py ফাইল scan করে অতিরিক্ত package খোঁজো
         const detected = autoDetectDeps(bot.entry_file, workdir);
-        // requirements.txt-এ আছে এমন বাদ দাও (duplicate এড়াতে)
         const reqPkgs = fs.existsSync(reqFile)
-          ? fs.readFileSync(reqFile, 'utf8').split('\n')
-              .map(l => l.trim().split(/[=><!\[]/)[0].toLowerCase()).filter(Boolean)
+          ? fs.readFileSync(reqFile, 'utf8')
+              .split('\n').map(l => l.trim().split(/[=><!\[]/)[0].toLowerCase()).filter(Boolean)
           : [];
         const newPkgs = detected.filter(p => !reqPkgs.includes(p.toLowerCase()));
 
         if (newPkgs.length) {
           emit(bot.id, 'system', `🔍 অটো-ডিটেক্ট (অতিরিক্ত): ${newPkgs.join(', ')}`);
-          // একটা একটা করে install করো যাতে একটা fail করলে বাকিগুলো হয়
           for (const pkg of newPkgs) {
             try {
               installPythonPackages(workdir, pkg);
@@ -201,19 +201,24 @@ function start(bot, isAutoRestart = false) {
 
   if (bot.language === 'python') {
     const depsDir = path.join(workdir, '.deps');
-    // .deps ফোল্ডার exist করে তা নিশ্চিত করো
     if (!fs.existsSync(depsDir)) {
       try { fs.mkdirSync(depsDir, { recursive: true }); } catch (_) {}
     }
-    // PYTHONPATH-এ .deps যোগ করো — installed packages খুঁজে পাবে
+    // PYTHONPATH-এ .deps যোগ করো (per-bot pure Python packages)
+    // system-wide installed packages (grpc, numpy etc.) Python নিজেই খুঁজে পাবে
     const existing = env.PYTHONPATH ? env.PYTHONPATH.split(path.delimiter) : [];
     if (!existing.includes(depsDir)) {
       env.PYTHONPATH = [depsDir, ...existing].filter(Boolean).join(path.delimiter);
     }
-    // unbuffered output — লগে সাথে সাথে দেখা যাবে
-    env.PYTHONUNBUFFERED = '1';
-    // encoding fix
-    env.PYTHONIOENCODING = 'utf-8';
+    env.PYTHONUNBUFFERED  = '1';   // real-time log output
+    env.PYTHONIOENCODING  = 'utf-8';
+    env.PYTHONDONTWRITEBYTECODE = '1';
+
+    // compiled extensions (.so) এর জন্য LD_LIBRARY_PATH inherit করো
+    // server.js boot-এ already set হয়েছে, শুধু নিশ্চিত করো
+    if (process.platform !== 'win32' && process.env.LD_LIBRARY_PATH) {
+      env.LD_LIBRARY_PATH = process.env.LD_LIBRARY_PATH;
+    }
   }
 
   let proc;
