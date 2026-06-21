@@ -9,7 +9,7 @@ function findPython() {
   if (_pythonBin) return _pythonBin;
   const candidates = process.platform === 'win32'
     ? ['python', 'py', 'python3']
-    : ['python3', 'python'];
+    : ['python3.12', 'python3.11', 'python3.10', 'python3', 'python'];
   for (const bin of candidates) {
     try {
       execSync(`${bin} --version`, { stdio: 'pipe', shell: true, timeout: 5000 });
@@ -25,10 +25,13 @@ let _workingPipBase = null;
 function findWorkingPipBase() {
   if (_workingPipBase !== null) return _workingPipBase;
   const probes = [
-    { test: 'python3 -m pip --version', base: 'python3 -m pip' },
-    { test: 'python -m pip --version',  base: 'python -m pip'  },
-    { test: 'pip3 --version',           base: 'pip3'           },
-    { test: 'pip --version',            base: 'pip'            },
+    { test: 'python3.12 -m pip --version', base: 'python3.12 -m pip' },
+    { test: 'python3.11 -m pip --version', base: 'python3.11 -m pip' },
+    { test: 'python3.10 -m pip --version', base: 'python3.10 -m pip' },
+    { test: 'python3 -m pip --version',    base: 'python3 -m pip'    },
+    { test: 'python -m pip --version',     base: 'python -m pip'     },
+    { test: 'pip3 --version',              base: 'pip3'              },
+    { test: 'pip --version',               base: 'pip'               },
   ];
   for (const { test, base } of probes) {
     try {
@@ -37,7 +40,7 @@ function findWorkingPipBase() {
       return base;
     } catch (_) {}
   }
-  _workingPipBase = 'python3 -m pip'; // fallback
+  _workingPipBase = 'python3.12 -m pip';
   return _workingPipBase;
 }
 

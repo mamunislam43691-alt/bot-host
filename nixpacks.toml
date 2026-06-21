@@ -28,9 +28,8 @@ nixPkgs = [
 [phases.install]
 cmds = [
   'npm install',
-  # Build time-এই common compiled packages pre-install করো
-  # এতে runtime-এ আর compile করতে হবে না, pre-built wheel use হবে
-  'python3 -m pip install --prefer-binary --quiet grpcio firebase-admin google-cloud-firestore numpy pandas Pillow opencv-python-headless cryptography lxml aiohttp pydantic',
+  # Nix-এ python3.12 -m pip ব্যবহার করতে হয় (python3 -m pip কাজ করে না)
+  'python3.12 -m pip install --prefer-binary --quiet grpcio firebase-admin google-cloud-firestore numpy pandas Pillow opencv-python-headless cryptography lxml aiohttp pydantic',
 ]
 
 [start]
