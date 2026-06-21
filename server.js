@@ -6,22 +6,47 @@ require('dotenv').config();
 // grpc, numpy, cryptography ইত্যাদি Nix store থেকে libstdc++ খোঁজে
 if (process.platform !== 'win32') {
   const { execSync } = require('child_process');
+  const pathMod = require('path');
   try {
-    // Nix-এ gcc lib path খুঁজে বের করো
-    const gccLib = execSync('gcc -print-file-name=libstdc++.so.6 2>/dev/null || echo ""', {
-      encoding: 'utf8', shell: true, timeout: 3000,
-    }).trim();
-    if (gccLib && gccLib !== 'libstdc++.so.6') {
-      const libDir = require('path').dirname(gccLib);
-      const current = process.env.LD_LIBRARY_PATH || '';
-      const paths = [libDir, '/usr/lib', '/usr/local/lib', '/lib'].filter(Boolean);
-      const merged = [...new Set([...paths, ...current.split(':').filter(Boolean)])].join(':');
+    const libPaths = new Set(['/usr/lib', '/usr/local/lib', '/lib', '/lib64', '/usr/lib64']);
+
+    // Nix store-এ libstdc++ খোঁজো (সবচেয়ে reliable)
+    try {
+      const nixLibs = execSync(
+        'find /nix/store -name "libstdc++.so.6" 2>/dev/null | head -5',
+        { encoding: 'utf8', shell: true, timeout: 5000 }
+      ).trim();
+      if (nixLibs) nixLibs.split('\n').filter(Boolean)
+        .forEach(p => libPaths.add(pathMod.dirname(p)));
+    } catch (_) {}
+
+    // gcc -print-file-name
+    try {
+      const gccLib = execSync('gcc -print-file-name=libstdc++.so.6 2>/dev/null', {
+        encoding: 'utf8', shell: true, timeout: 3000,
+      }).trim();
+      if (gccLib && gccLib !== 'libstdc++.so.6' && gccLib.startsWith('/'))
+        libPaths.add(pathMod.dirname(gccLib));
+    } catch (_) {}
+
+    // ldconfig
+    try {
+      const ldOut = execSync('ldconfig -p 2>/dev/null | grep libstdc++ | head -3', {
+        encoding: 'utf8', shell: true, timeout: 3000,
+      }).trim();
+      ldOut.split('\n').forEach(line => {
+        const m = line.match(/=>\s+(.+)/);
+        if (m) libPaths.add(pathMod.dirname(m[1].trim()));
+      });
+    } catch (_) {}
+
+    const existing = (process.env.LD_LIBRARY_PATH || '').split(':').filter(Boolean);
+    const merged = [...new Set([...libPaths, ...existing])].join(':');
+    if (merged) {
       process.env.LD_LIBRARY_PATH = merged;
-      console.log(`[boot] LD_LIBRARY_PATH=${merged.substring(0, 80)}...`);
+      console.log(`[boot] LD_LIBRARY_PATH: ${[...libPaths].length} lib paths set`);
     }
-  } catch (_) {
-    // LD_LIBRARY_PATH set ব্যর্থ হলেও চলবে
-  }
+  } catch (_) {}
 }
 
 const http = require('http');

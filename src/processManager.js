@@ -257,9 +257,27 @@ function start(bot, isAutoRestart = false) {
     env.PYTHONDONTWRITEBYTECODE = '1';
 
     // compiled extensions (.so) এর জন্য LD_LIBRARY_PATH inherit করো
-    // server.js boot-এ already set হয়েছে, শুধু নিশ্চিত করো
     if (process.platform !== 'win32' && process.env.LD_LIBRARY_PATH) {
       env.LD_LIBRARY_PATH = process.env.LD_LIBRARY_PATH;
+    }
+
+    // Railway Nix: .deps-এ installed compiled packages-এর .libs folder যোগ করো
+    if (process.platform !== 'win32') {
+      const depsLibPaths = [];
+      try {
+        // .deps এর ভেতরে .libs ফোল্ডার খোঁজো (numpy.libs, Pillow.libs ইত্যাদি)
+        if (fs.existsSync(depsDir)) {
+          for (const entry of fs.readdirSync(depsDir)) {
+            if (entry.endsWith('.libs')) {
+              depsLibPaths.push(path.join(depsDir, entry));
+            }
+          }
+        }
+      } catch (_) {}
+      if (depsLibPaths.length) {
+        const current = env.LD_LIBRARY_PATH || '';
+        env.LD_LIBRARY_PATH = [...depsLibPaths, current].filter(Boolean).join(':');
+      }
     }
   }
 

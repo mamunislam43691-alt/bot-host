@@ -21,21 +21,35 @@ function findPython() {
 }
 
 function runPipInstall(workdir, argsStr) {
-  // system-wide install (--user বা sudo ছাড়া) চেষ্টা করো আগে
-  // Railway/Linux-এ root হিসেবে চলে তাই সরাসরি install হয়
-  const systemCmds = [
-    `pip3 install ${argsStr}`,
-    `pip install ${argsStr}`,
+  // Railway Nix-এ python3 -m pip সবচেয়ে reliable
+  // pip3/pip PATH-এ নাও থাকতে পারে
+  const cmds = [
     `python3 -m pip install ${argsStr}`,
     `python -m pip install ${argsStr}`,
+    `pip3 install ${argsStr}`,
+    `pip install ${argsStr}`,
   ];
-  const fullCmd = systemCmds.map(c => `(${c})`).join(' || ');
-  execSync(fullCmd, {
-    cwd: workdir,
-    stdio: 'pipe',
-    timeout: 10 * 60 * 1000,
-    shell: true,
-  });
+
+  let lastErr = null;
+  for (const cmd of cmds) {
+    try {
+      execSync(cmd, {
+        cwd: workdir,
+        stdio: 'pipe',
+        timeout: 10 * 60 * 1000,
+        shell: true,
+      });
+      return; // সফল হলে বের হয়ে যাও
+    } catch (e) {
+      lastErr = e;
+      // পরের command চেষ্টা করো
+    }
+  }
+  // সব fail হলে error throw করো
+  const errMsg = lastErr && lastErr.stderr
+    ? lastErr.stderr.toString().slice(0, 300)
+    : (lastErr ? lastErr.message : 'pip install failed');
+  throw new Error(errMsg);
 }
 
 // compiled packages (C extensions) যাদের --target দিলে কাজ করে না
@@ -89,24 +103,28 @@ function installPythonPackages(workdir, depsString) {
     .filter(s => !s.startsWith('#'));
   if (!pkgs.length) return;
 
-  // ২ ভাগে ভাগ করো:
-  // ১. compiled/system packages → system-wide install (no --target)
-  // ২. pure Python packages → --target .deps (per-bot isolation)
+  const depsDir = path.join(workdir, '.deps');
+  if (!fs.existsSync(depsDir)) fs.mkdirSync(depsDir, { recursive: true });
+
   const systemPkgs = pkgs.filter(p => needsSystemInstall(p));
   const localPkgs  = pkgs.filter(p => !needsSystemInstall(p));
 
-  // system-wide install
+  // system-wide install (compiled packages)
   if (systemPkgs.length) {
-    const args = `--no-cache-dir --disable-pip-version-check --quiet ${systemPkgs.map(p => `"${p}"`).join(' ')}`;
-    runPipInstall(workdir, args);
+    const quoted = systemPkgs.map(p => `"${p}"`).join(' ');
+    try {
+      runPipInstall(workdir, `--no-cache-dir --disable-pip-version-check --quiet ${quoted}`);
+    } catch (e) {
+      // system install fail → .deps-এ fallback করো
+      // (কিছু environment-এ system-wide write permission নেই)
+      runPipInstall(workdir, `--target "${depsDir}" --no-cache-dir --disable-pip-version-check --quiet ${quoted}`);
+    }
   }
 
-  // per-bot .deps install
+  // .deps install (pure Python packages)
   if (localPkgs.length) {
-    const depsDir = path.join(workdir, '.deps');
-    if (!fs.existsSync(depsDir)) fs.mkdirSync(depsDir, { recursive: true });
-    const args = `--target "${depsDir}" --no-cache-dir --disable-pip-version-check --quiet ${localPkgs.map(p => `"${p}"`).join(' ')}`;
-    runPipInstall(workdir, args);
+    const quoted = localPkgs.map(p => `"${p}"`).join(' ');
+    runPipInstall(workdir, `--target "${depsDir}" --no-cache-dir --disable-pip-version-check --quiet ${quoted}`);
   }
 }
 
