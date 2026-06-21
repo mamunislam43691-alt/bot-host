@@ -304,6 +304,10 @@
 
       if (action === 'start' || action === 'stop' || action === 'restart') {
         doAction(botId, action);
+      } else if (action === 'reinstall') {
+        if (confirm('সব package মুছে নতুন install করবেন? বট restart হবে।')) {
+          doAction(botId, 'reinstall');
+        }
       } else if (action === 'del') {
         const bot = bots.find(b => b.id === botId);
         if (bot) deleteBot(bot);
@@ -514,6 +518,7 @@
         ? `<button class="btn btn-sm btn-warn" id="stop_${b.id}">⏹ বন্ধ</button>`
         : `<button class="btn btn-sm btn-success" id="start_${b.id}">▶ চালু</button>`}
           <button class="btn btn-sm" id="restart_${b.id}">↻ রিস্টার্ট</button>
+          <button class="btn btn-sm btn-ghost" id="reinstall_${b.id}" title="সব package মুছে নতুন install করুন">🔄 Reinstall</button>
           <button class="btn btn-sm btn-ghost" id="settings_${b.id}">⚙️</button>
           <button class="btn btn-sm btn-ghost" id="editor_${b.id}">📝 কোড</button>
           <button class="btn btn-sm btn-primary" id="download_${b.id}" title="বট ফাইল ডাউনলোড" style="padding:4px 8px">⬇️ ফাইল</button>

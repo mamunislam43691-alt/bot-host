@@ -260,6 +260,39 @@ router.post('/:id/restart', (req, res) => {
   res.json({ ok: true, bot: publicBot(bot) });
 });
 
+// ---------- Force reinstall deps + restart ----------
+// .deps clean করে সব package নতুন করে install করবে
+router.post('/:id/reinstall', async (req, res) => {
+  const bot = store.getBot(req.params.id);
+  if (!ensureBotOwnedBy(req, res, bot)) return;
+
+  const workdir = pm.botWorkdir(bot);
+  const depsDir = require('path').join(workdir, '.deps');
+
+  // bot বন্ধ করো
+  pm.stop(bot.id);
+
+  // .deps পুরো মুছে দাও
+  try {
+    if (fs.existsSync(depsDir)) {
+      fs.rmSync(depsDir, { recursive: true, force: true });
+      pm.emit(bot.id, 'system', '🧹 .deps folder মুছা হয়েছে, নতুন install শুরু হবে।');
+    }
+  } catch (e) {
+    pm.emit(bot.id, 'system', `⚠ .deps মুছতে সমস্যা: ${e.message}`);
+  }
+
+  // processManager-এর depsInstalled cache থেকেও সরাও
+  pm.clearDepsCache(bot.id);
+
+  // restart → এবার সব নতুন করে install হবে
+  await new Promise(r => setTimeout(r, 500));
+  const fresh = store.getBot(bot.id);
+  if (fresh) pm.start(fresh);
+
+  res.json({ ok: true, message: 'Dependencies পুনরায় install হচ্ছে', bot: publicBot(bot) });
+});
+
 // ---------- Logs ----------
 router.get('/:id/logs', (req, res) => {
   const bot = store.getBot(req.params.id);

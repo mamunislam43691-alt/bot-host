@@ -504,9 +504,14 @@ function stopAll() {
   for (const [id] of running) stop(id);
 }
 
+function clearDepsCache(botId) {
+  depsInstalled.delete(botId);
+}
+
 module.exports = {
   setIO,
   start, stop, restart, stopAll,
+  clearDepsCache,
   status: statusOf,
   describe,
   botWorkdir,
