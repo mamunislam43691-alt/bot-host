@@ -7,10 +7,10 @@ const path = require('path');
 const fs = require('fs');
 const store = require('../db/store');
 const config = require('./config');
-const { LANGUAGES, autoDetectDeps, installPythonPackages } = require('./languages');
+const { LANGUAGES, autoDetectDeps, installPythonPackages, needsSystemInstall } = require('./languages');
 
-// Track bots whose deps are already installed this server lifetime,
-// so we don't reinstall on every restart.
+// Track bots whose deps are already installed this server lifetime.
+// restart করলে সবসময় reinstall হবে (cache clear)
 const depsInstalled = new Set();
 
 // botId -> { proc, pid, startedAt, autoRestart, restartCount, status, stopping }
@@ -133,37 +133,79 @@ function start(bot, isAutoRestart = false) {
   if (!depsInstalled.has(bot.id)) {
     try {
       if (bot.language === 'python') {
-        // ১. requirements.txt থেকে ইনস্টল
+        const depsDir = path.join(workdir, '.deps');
+
+        // ১. .deps-এ যদি system packages (compiled) থাকে সেগুলো সরাও
+        //    কারণ --target install করা compiled packages libstdc++ খুঁজে পায় না
+        if (fs.existsSync(depsDir)) {
+          // system packages-এর সব possible folder names
+          const systemPkgDirs = [
+            'grpc', 'grpcio', 'grpcio_tools', 'grpcio_status',
+            'firebase_admin',
+            'google', 'googleapis_common_protos', 'google_auth',
+            'google_api_core', 'google_cloud_core', 'google_cloud_firestore',
+            'google_cloud_storage', 'googleapiclient', 'google_resumable_media',
+            'proto', 'protobuf',
+            'numpy', 'numpy.libs', 'numpy_core',
+            'pandas', 'pandas_core',
+            'scipy', 'scipy.libs',
+            'cv2', 'cv2.libs',
+            'PIL', 'Pillow', 'Pillow.libs',
+            'cryptography', 'cryptography.hazmat',
+            'nacl', 'PyNaCl',
+            'cffi', 'cffi_backend',
+            '_cffi_backend',
+            'lxml', 'lxml.libs',
+            'psycopg2', 'psycopg2_binary',
+            'aiohttp', 'aiohttp.libs',
+            'yarl', 'multidict', 'frozenlist', 'aiosignal',
+            'pydantic', 'pydantic_core',
+            'ujson', 'msgpack', 'orjson',
+            'torch', 'tensorflow', 'keras',
+            'regex', 'rapidfuzz',
+            'charset_normalizer', 'charset_normalizer.libs',
+          ];
+
+          try {
+            const entries = fs.readdirSync(depsDir);
+            for (const entry of entries) {
+              // dist-info এবং system package folders মুছো
+              const isDistInfo = entry.endsWith('.dist-info') || entry.endsWith('.data');
+              const isSystem   = systemPkgDirs.some(d =>
+                entry === d || entry.startsWith(d + '-') || entry.startsWith(d + '.')
+              );
+              if (isDistInfo || isSystem) {
+                try {
+                  fs.rmSync(path.join(depsDir, entry), { recursive: true, force: true });
+                } catch (_) {}
+              }
+            }
+          } catch (_) {}
+        }
+
+        // ২. requirements.txt থেকে ইনস্টল
         const reqFile = path.join(workdir, 'requirements.txt');
         if (fs.existsSync(reqFile)) {
           emit(bot.id, 'system', `📦 requirements.txt ইনস্টল হচ্ছে...`);
-          try {
-            // installPythonPackages নিজেই system/local ভাগ করে install করবে
-            installPythonPackages(workdir, fs.readFileSync(reqFile, 'utf8'));
+          const pkgs = fs.readFileSync(reqFile, 'utf8')
+            .split('\n').map(l => l.trim())
+            .filter(l => l && !l.startsWith('#') && !l.startsWith('-'));
+          let failed = [];
+          for (const pkg of pkgs) {
+            try {
+              installPythonPackages(workdir, pkg);
+              emit(bot.id, 'system', `  ✓ ${pkg}`);
+            } catch (_) {
+              failed.push(pkg);
+              emit(bot.id, 'system', `  ✕ ${pkg} — ইনস্টল ব্যর্থ`);
+            }
+          }
+          if (failed.length === 0) {
             emit(bot.id, 'system', '✓ requirements.txt ইনস্টল সম্পন্ন।');
-          } catch (e) {
-            // bulk fail হলে একটা একটা করে চেষ্টা করো
-            emit(bot.id, 'system', `⚠ Bulk install ব্যর্থ, একটা একটা করে চেষ্টা করছি...`);
-            const pkgs = fs.readFileSync(reqFile, 'utf8')
-              .split('\n').map(l => l.trim())
-              .filter(l => l && !l.startsWith('#') && !l.startsWith('-'));
-            let failed = [];
-            for (const pkg of pkgs) {
-              try {
-                installPythonPackages(workdir, pkg);
-                emit(bot.id, 'system', `  ✓ ${pkg}`);
-              } catch (_) {
-                failed.push(pkg);
-                emit(bot.id, 'system', `  ✕ ${pkg} — ইনস্টল ব্যর্থ`);
-              }
-            }
-            if (failed.length) {
-              emit(bot.id, 'system', `⚠ ইনস্টল হয়নি: ${failed.join(', ')}`);
-            }
           }
         }
 
-        // ২. সব .py ফাইল scan করে অতিরিক্ত package খোঁজো
+        // ৩. সব .py ফাইল scan করে অতিরিক্ত package খোঁজো
         const detected = autoDetectDeps(bot.entry_file, workdir);
         const reqPkgs = fs.existsSync(reqFile)
           ? fs.readFileSync(reqFile, 'utf8')
@@ -391,6 +433,9 @@ function stop(botId) {
 function restart(botId) {
   const bot = store.getBot(botId);
   if (!bot) return false;
+
+  // restart-এ সবসময় deps reinstall করো
+  depsInstalled.delete(botId);
 
   const rec = running.get(botId);
   const wasRunning = rec && (statusOf(botId) === 'running' || statusOf(botId) === 'starting');

@@ -149,29 +149,28 @@ router.post('/upload', upload.single('file'), async (req, res) => {
       // ১) user-supplied requirements (form field থেকে)
       if (requirements && finalLanguage === 'python') {
         try {
-          emit(botId, 'system', `📦 Dependencies ইনস্টল হচ্ছে...`);
-          // একটা একটা করে install — একটা fail হলে বাকিগুলো হবে
+          pm.emit(botId, 'system', `📦 Dependencies ইনস্টল হচ্ছে...`);
           const pkgs = requirements.split(/[\n,]/).map(s => s.trim()).filter(s => s && !s.startsWith('#'));
           for (const pkg of pkgs) {
             try {
               installPythonPackages(botWorkdir, pkg);
-              emit(botId, 'system', `  ✓ ${pkg}`);
+              pm.emit(botId, 'system', `  ✓ ${pkg}`);
             } catch (_) {
-              emit(botId, 'system', `  ✕ ${pkg} ইনস্টল ব্যর্থ`);
+              pm.emit(botId, 'system', `  ✕ ${pkg} ইনস্টল ব্যর্থ`);
             }
           }
-          emit(botId, 'system', '✓ Dependencies ইনস্টল সম্পন্ন।');
+          pm.emit(botId, 'system', '✓ Dependencies ইনস্টল সম্পন্ন।');
         } catch (e) {
-          emit(botId, 'system', `⚠ Dependency install সতর্কতা: ${e.message}`);
+          pm.emit(botId, 'system', `⚠ Dependency install সতর্কতা: ${e.message}`);
         }
       } else if (lang.installDeps) {
         // ২) requirements.txt / package.json থেকে
         try {
-          emit(botId, 'system', `📦 ${lang.label} dependencies ইনস্টল হচ্ছে...`);
+          pm.emit(botId, 'system', `📦 ${lang.label} dependencies ইনস্টল হচ্ছে...`);
           lang.installDeps(botWorkdir);
-          emit(botId, 'system', '✓ Dependencies ইনস্টল সম্পন্ন।');
+          pm.emit(botId, 'system', '✓ Dependencies ইনস্টল সম্পন্ন।');
         } catch (e) {
-          emit(botId, 'system', `⚠ Dependency install সতর্কতা: ${e.message}`);
+          pm.emit(botId, 'system', `⚠ Dependency install সতর্কতা: ${e.message}`);
         }
       }
 
@@ -184,18 +183,18 @@ router.post('/upload', upload.single('file'), async (req, res) => {
             : [];
           const newPkgs = detected.filter(p => !reqPkgs.includes(p.toLowerCase()));
           if (newPkgs.length) {
-            emit(botId, 'system', `🔍 অটো-ডিটেক্ট (অতিরিক্ত): ${newPkgs.join(', ')}`);
+            pm.emit(botId, 'system', `🔍 অটো-ডিটেক্ট (অতিরিক্ত): ${newPkgs.join(', ')}`);
             for (const pkg of newPkgs) {
               try {
                 installPythonPackages(botWorkdir, pkg);
-                emit(botId, 'system', `  ✓ ${pkg}`);
+                pm.emit(botId, 'system', `  ✓ ${pkg}`);
               } catch (_) {
-                emit(botId, 'system', `  ✕ ${pkg} — pip-এ নেই বা ভিন্ন নামে আছে`);
+                pm.emit(botId, 'system', `  ✕ ${pkg} — pip-এ নেই বা ভিন্ন নামে আছে`);
               }
             }
           }
         } catch (e) {
-          emit(botId, 'system', `⚠ অটো-ডিটেক্ট সতর্কতা: ${e.message}`);
+          pm.emit(botId, 'system', `⚠ অটো-ডিটেক্ট সতর্কতা: ${e.message}`);
         }
       }
     }
