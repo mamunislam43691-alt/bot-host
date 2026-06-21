@@ -28,8 +28,8 @@ nixPkgs = [
 [phases.install]
 cmds = [
   'npm install',
-  # Nix-এ python3.12 -m pip ব্যবহার করতে হয় (python3 -m pip কাজ করে না)
-  'python3.12 -m pip install --prefer-binary --quiet grpcio firebase-admin google-cloud-firestore numpy pandas Pillow opencv-python-headless cryptography lxml aiohttp pydantic',
+  # pip3.12 বা pip3 দিয়ে pre-install (python3.12 -m pip Nix-এ কাজ করে না)
+  'pip3.12 install --prefer-binary --quiet grpcio firebase-admin google-cloud-firestore numpy pandas Pillow opencv-python-headless cryptography lxml aiohttp pydantic || pip3 install --prefer-binary --quiet grpcio firebase-admin google-cloud-firestore numpy pandas Pillow opencv-python-headless cryptography lxml aiohttp pydantic || true',
 ]
 
 [start]

@@ -25,13 +25,14 @@ let _workingPipBase = null;
 function findWorkingPipBase() {
   if (_workingPipBase !== null) return _workingPipBase;
   const probes = [
-    { test: 'python3.12 -m pip --version', base: 'python3.12 -m pip' },
-    { test: 'python3.11 -m pip --version', base: 'python3.11 -m pip' },
-    { test: 'python3.10 -m pip --version', base: 'python3.10 -m pip' },
-    { test: 'python3 -m pip --version',    base: 'python3 -m pip'    },
-    { test: 'python -m pip --version',     base: 'python -m pip'     },
-    { test: 'pip3 --version',              base: 'pip3'              },
-    { test: 'pip --version',               base: 'pip'               },
+    { test: 'pip3.12 --version',          base: 'pip3.12'            },
+    { test: 'pip3.11 --version',          base: 'pip3.11'            },
+    { test: 'pip3.10 --version',          base: 'pip3.10'            },
+    { test: 'pip3 --version',             base: 'pip3'               },
+    { test: 'pip --version',              base: 'pip'                },
+    { test: 'python3.12 -m pip --version',base: 'python3.12 -m pip'  },
+    { test: 'python3 -m pip --version',   base: 'python3 -m pip'     },
+    { test: 'python -m pip --version',    base: 'python -m pip'      },
   ];
   for (const { test, base } of probes) {
     try {
@@ -40,7 +41,7 @@ function findWorkingPipBase() {
       return base;
     } catch (_) {}
   }
-  _workingPipBase = 'python3.12 -m pip';
+  _workingPipBase = 'pip3';
   return _workingPipBase;
 }
 
