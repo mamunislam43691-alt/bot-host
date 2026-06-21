@@ -434,8 +434,21 @@ function autoDetectDeps(entryFile, workdir) {
     'cProfile','pstats','timeit','trace','tracemalloc','faulthandler',
     'atexit','_thread','contextvars','linecache','keyword','parser',
     'symbol','opcode','__future__','__main__','_io','_abc','_csv',
-    'typing_extensions',
+    'typing_extensions','abc','io','os','sys','builtins',
+    // common local module names যেগুলো pip package না
+    'config','utils','helpers','models','database','db','app','main',
+    'settings','constants','exceptions','errors','logger','auth',
+    'middleware','decorators','validators','serializers','views',
+    'handlers','tasks','celery','worker','server','client','api',
+    'tests','test','migrations','admin','forms','urls','signals',
   ]);
+
+  // এগুলো pip package না, শুধু stdlib sub-modules বা common local names
+  const SKIP_PATTERNS = [
+    /^_/,           // private: _thread, _io etc
+    /^\d/,          // number দিয়ে শুরু
+    /^[A-Z][A-Z]/,  // ALL_CAPS constants
+  ];
 
   const found = new Set();
   const scanned = new Set();
@@ -480,9 +493,16 @@ function autoDetectDeps(entryFile, workdir) {
     const mods = extractModules(src);
     for (const mod of mods) {
       if (!mod || STDLIB.has(mod)) continue;
+      if (SKIP_PATTERNS.some(p => p.test(mod))) continue;
 
       if (IMPORT_TO_PIP[mod]) {
+        // mapping-এ আছে → mapped pip name use করো
         found.add(IMPORT_TO_PIP[mod]);
+      } else {
+        // mapping-এ নেই → import name টাই pip name হিসেবে try করো
+        // underscore → hyphen (some_package → some-package)
+        const pipName = mod.replace(/_/g, '-');
+        found.add(pipName);
       }
 
       // local .py ফাইল হলে সেটাও scan করো
