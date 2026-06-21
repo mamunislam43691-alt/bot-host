@@ -20,18 +20,42 @@ function findPython() {
   return null;
 }
 
+// Railway Nix-এ কোন pip command কাজ করে probe করো (একবার cache করো)
+let _workingPipBase = null;
+function findWorkingPipBase() {
+  if (_workingPipBase !== null) return _workingPipBase;
+  const probes = [
+    { test: 'python3 -m pip --version', base: 'python3 -m pip' },
+    { test: 'python -m pip --version',  base: 'python -m pip'  },
+    { test: 'pip3 --version',           base: 'pip3'           },
+    { test: 'pip --version',            base: 'pip'            },
+  ];
+  for (const { test, base } of probes) {
+    try {
+      execSync(test, { stdio: 'pipe', shell: true, timeout: 5000 });
+      _workingPipBase = base;
+      return base;
+    } catch (_) {}
+  }
+  _workingPipBase = 'python3 -m pip'; // fallback
+  return _workingPipBase;
+}
+
 function runPipInstall(workdir, argsStr) {
-  // Railway Nix-এ python3 -m pip সবচেয়ে reliable
-  // pip3/pip PATH-এ নাও থাকতে পারে
+  const base = findWorkingPipBase();
   const cmds = [
+    `${base} install ${argsStr}`,
+    // fallbacks যদি cached base কাজ না করে
     `python3 -m pip install ${argsStr}`,
     `python -m pip install ${argsStr}`,
     `pip3 install ${argsStr}`,
     `pip install ${argsStr}`,
   ];
+  // deduplicate
+  const unique = [...new Set(cmds)];
 
   let lastErr = null;
-  for (const cmd of cmds) {
+  for (const cmd of unique) {
     try {
       execSync(cmd, {
         cwd: workdir,
@@ -39,16 +63,18 @@ function runPipInstall(workdir, argsStr) {
         timeout: 10 * 60 * 1000,
         shell: true,
       });
-      return; // সফল হলে বের হয়ে যাও
+      return; // সফল
     } catch (e) {
       lastErr = e;
-      // পরের command চেষ্টা করো
     }
   }
-  // সব fail হলে error throw করো
-  const errMsg = lastErr && lastErr.stderr
-    ? lastErr.stderr.toString().slice(0, 300)
-    : (lastErr ? lastErr.message : 'pip install failed');
+  // সব fail — সম্পূর্ণ error message দেখাও
+  let errMsg = 'All pip commands failed.';
+  if (lastErr) {
+    const stderr = lastErr.stderr ? lastErr.stderr.toString() : '';
+    const stdout = lastErr.stdout ? lastErr.stdout.toString() : '';
+    errMsg = (stderr || stdout || lastErr.message || errMsg).slice(0, 800);
+  }
   throw new Error(errMsg);
 }
 
@@ -109,22 +135,21 @@ function installPythonPackages(workdir, depsString) {
   const systemPkgs = pkgs.filter(p => needsSystemInstall(p));
   const localPkgs  = pkgs.filter(p => !needsSystemInstall(p));
 
-  // system-wide install (compiled packages)
+  // system-wide install চেষ্টা, fail হলে .deps fallback
   if (systemPkgs.length) {
     const quoted = systemPkgs.map(p => `"${p}"`).join(' ');
     try {
-      runPipInstall(workdir, `--no-cache-dir --disable-pip-version-check --quiet ${quoted}`);
-    } catch (e) {
-      // system install fail → .deps-এ fallback করো
-      // (কিছু environment-এ system-wide write permission নেই)
-      runPipInstall(workdir, `--target "${depsDir}" --no-cache-dir --disable-pip-version-check --quiet ${quoted}`);
+      runPipInstall(workdir, `--no-cache-dir --quiet ${quoted}`);
+    } catch (_) {
+      // system write permission নেই → .deps-এ install করো
+      runPipInstall(workdir, `--target "${depsDir}" --no-cache-dir --quiet ${quoted}`);
     }
   }
 
-  // .deps install (pure Python packages)
+  // pure Python → .deps
   if (localPkgs.length) {
     const quoted = localPkgs.map(p => `"${p}"`).join(' ');
-    runPipInstall(workdir, `--target "${depsDir}" --no-cache-dir --disable-pip-version-check --quiet ${quoted}`);
+    runPipInstall(workdir, `--target "${depsDir}" --no-cache-dir --quiet ${quoted}`);
   }
 }
 

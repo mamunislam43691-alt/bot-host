@@ -195,9 +195,10 @@ function start(bot, isAutoRestart = false) {
             try {
               installPythonPackages(workdir, pkg);
               emit(bot.id, 'system', `  ✓ ${pkg}`);
-            } catch (_) {
+            } catch (e) {
               failed.push(pkg);
-              emit(bot.id, 'system', `  ✕ ${pkg} — ইনস্টল ব্যর্থ`);
+              const errDetail = e.message ? e.message.split('\n').slice(0, 3).join(' | ') : 'unknown';
+              emit(bot.id, 'stderr', `  ✕ ${pkg} error: ${errDetail}`);
             }
           }
           if (failed.length === 0) {
@@ -219,8 +220,10 @@ function start(bot, isAutoRestart = false) {
             try {
               installPythonPackages(workdir, pkg);
               emit(bot.id, 'system', `  ✓ ${pkg}`);
-            } catch (_) {
-              emit(bot.id, 'system', `  ✕ ${pkg} — pip-এ নেই বা ভিন্ন নামে আছে`);
+            } catch (e) {
+              // error message সম্পূর্ণ দেখাও
+              const errDetail = e.message ? e.message.split('\n').slice(0, 3).join(' | ') : 'unknown error';
+              emit(bot.id, 'stderr', `  ✕ ${pkg} install error: ${errDetail}`);
             }
           }
         }
