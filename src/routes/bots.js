@@ -229,11 +229,26 @@ router.patch('/:id', (req, res) => {
   const bot = store.getBot(req.params.id);
   if (!ensureBotOwnedBy(req, res, bot)) return;
   const { autoRestart, env, name } = req.body || {};
-  const envObj = env !== undefined ? (typeof env === 'string' ? JSON.parse(env) : env) : JSON.parse(bot.env_json);
+
+  let envObj;
+  try {
+    envObj = env !== undefined
+      ? (typeof env === 'string' ? JSON.parse(env) : env)
+      : JSON.parse(bot.env_json || '{}');
+    // env values sanitize — control characters বাদ দাও (Firebase JSON error রোধ করো)
+    for (const [k, v] of Object.entries(envObj)) {
+      if (typeof v === 'string') {
+        envObj[k] = v.replace(/[\x00-\x1F\x7F]/g, ''); // control chars strip
+      }
+    }
+  } catch {
+    return res.status(400).json({ error: 'Invalid env JSON' });
+  }
+
   const ar = autoRestart !== undefined ? !!autoRestart : !!bot.auto_restart;
   store.updateBotSettings(bot.id, envObj, ar);
   if (name !== undefined && String(name).trim()) {
-    store.updateBotName(bot.id, String(name).trim());
+    store.updateBotName(bot.id, String(name).trim().slice(0, 100));
   }
   res.json({ bot: publicBot(store.getBot(bot.id)) });
 });

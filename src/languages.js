@@ -435,12 +435,22 @@ function autoDetectDeps(entryFile, workdir) {
     'atexit','_thread','contextvars','linecache','keyword','parser',
     'symbol','opcode','__future__','__main__','_io','_abc','_csv',
     'typing_extensions','abc','io','os','sys','builtins',
+    // Python stdlib modules যেগুলো pip package না কিন্তু import করা যায়
+    'html','html5lib','xml','xmlrpc','cgi','cgitb','wsgiref',
+    'antigravity','this','turtle','tkinter','turtledemo',
+    'idlelib','lib2to3','distutils','ensurepip','venv',
+    'ntpath','posixpath','genericpath','fnmatch',
+    'formatter','imaplib','nntplib','poplib',
+    'smtplib','smtpd','ftplib','telnetlib',
+    'multiprocessing','concurrent','importlib','pkgutil',
+    'modulefinder','runpy','sysconfig','tokenize',
     // common local module names যেগুলো pip package না
     'config','utils','helpers','models','database','db','app','main',
     'settings','constants','exceptions','errors','logger','auth',
     'middleware','decorators','validators','serializers','views',
-    'handlers','tasks','celery','worker','server','client','api',
+    'handlers','tasks','worker','server','client','api',
     'tests','test','migrations','admin','forms','urls','signals',
+    'celery','bot','core','base','common','shared','lib','src',
   ]);
 
   // এগুলো pip package না, শুধু stdlib sub-modules বা common local names

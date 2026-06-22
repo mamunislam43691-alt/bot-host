@@ -240,7 +240,14 @@ function start(bot, isAutoRestart = false) {
   let env = { ...process.env };
   try {
     const extra = JSON.parse(bot.env_json || '{}');
-    env = { ...env, ...extra };
+    // control characters sanitize করো — Firebase/JSON parse error রোধ করো
+    for (const [k, v] of Object.entries(extra)) {
+      if (typeof v === 'string') {
+        env[k] = v.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
+      } else {
+        env[k] = v;
+      }
+    }
   } catch (_) { /* ignore malformed */ }
 
   if (bot.language === 'python') {

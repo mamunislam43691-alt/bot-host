@@ -53,6 +53,8 @@ const http = require('http');
 const path = require('path');
 const express = require('express');
 const cors = require('cors');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 const { Server } = require('socket.io');
 
 const config = require('./src/config');
@@ -68,9 +70,38 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, { path: '/socket.io', cors: { origin: '*' } });
 
+// ---------- Security Headers ----------
+app.use(helmet({
+  contentSecurityPolicy: false, // SPA frontend-এর জন্য relax করা
+  crossOriginEmbedderPolicy: false,
+}));
+
+// ---------- Rate Limiting ----------
+// Login/Register: brute-force রোধ করো
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 মিনিট
+  max: 20,
+  message: { error: 'অনেকবার চেষ্টা করা হয়েছে। ১৫ মিনিট পর আবার চেষ্টা করুন।' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// API general: প্রতি মিনিটে ১০০ request
+const apiLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 200,
+  message: { error: 'Too many requests. Please slow down.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: (req) => req.path === '/health', // health check skip
+});
+
 app.use(cors());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '2mb' }));       // body size limit
+app.use(express.urlencoded({ extended: true, limit: '2mb' }));
+app.use('/api', apiLimiter);
+app.use('/api/auth/login', authLimiter);
+app.use('/api/auth/register', authLimiter);
 
 // ---------- Socket.IO: authenticate + join bot rooms ----------
 const jwt = require('jsonwebtoken');
