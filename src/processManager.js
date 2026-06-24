@@ -64,6 +64,100 @@ function describe(botId) {
   return describeInternal(botId);
 }
 
+// ---------- Pre-flight syntax check ----------
+function checkSyntax(bot, workdir, lang) {
+  const entryPath = path.join(workdir, bot.entry_file);
+  const result = { error: false, lines: [] };
+
+  try {
+    if (bot.language === 'python') {
+      const pyBin = lang.binary;
+      const r = spawnSync(pyBin, ['-m', 'py_compile', bot.entry_file], {
+        cwd: workdir,
+        encoding: 'utf8',
+        timeout: 10000,
+        shell: false,  // shell false — args safely passed
+      });
+      if (r.status !== 0) {
+        result.error = true;
+        const raw = (r.stderr || r.stdout || '').trim();
+        // parse করো: File "...", line N
+        const lines = raw.split('\n').map(l => l.trim()).filter(Boolean);
+        result.lines = lines.map(l => {
+          // file path ছোট করো
+          return l.replace(/File ".*?([^/\\]+\.py)"/, 'File "$1"');
+        });
+      }
+    } else if (bot.language === 'node') {
+      const r = spawnSync(process.execPath, ['--check', bot.entry_file], {
+        cwd: workdir,
+        encoding: 'utf8',
+        timeout: 10000,
+      });
+      if (r.status !== 0) {
+        result.error = true;
+        const raw = (r.stderr || r.stdout || '').trim();
+        result.lines = raw.split('\n').map(l => l.trim()).filter(Boolean);
+      }
+    }
+  } catch (_) {}
+
+  return result;
+}
+
+// ---------- Smart error diagnosis ----------
+function diagnoseError(exitCode, signal, language, workdir, stderr) {
+  if (signal) return null;
+  if (!exitCode || exitCode === 0) return null;
+
+  const hints = [];
+  const s = (stderr || '').toLowerCase();
+
+  if (language === 'python') {
+    if (s.includes('modulenotfounderror') || s.includes('no module named')) {
+      const m = stderr.match(/No module named '([^']+)'/i);
+      const pkg = m ? m[1].replace('_', '-') : 'unknown';
+      hints.push(`💡 Missing module: "${pkg}"`);
+      hints.push(`   সমাধান: বটের requirements.txt-এ "${pkg}" যোগ করুন, তারপর 🔄 Reinstall চাপুন।`);
+    } else if (s.includes('syntaxerror')) {
+      hints.push(`💡 Python Syntax Error — কোডে ভুল আছে।`);
+      hints.push(`   সমাধান: 📝 কোড এডিটরে গিয়ে error line ঠিক করুন।`);
+    } else if (s.includes('indentationerror')) {
+      hints.push(`💡 Indentation Error — space/tab মিলছে না।`);
+      hints.push(`   সমাধান: সব জায়গায় একই ধরনের indent ব্যবহার করুন (4 spaces বা tab)।`);
+    } else if (s.includes('invalid control character') || s.includes('json.decoder')) {
+      hints.push(`💡 JSON/Config Error — env variable বা JSON file-এ invalid character।`);
+      hints.push(`   সমাধান: ⚙️ Settings-এ env variables চেক করুন, copy-paste করা text পরিষ্কার করুন।`);
+    } else if (s.includes('connection refused') || s.includes('connection error')) {
+      hints.push(`💡 Connection Error — external service connect করতে পারছে না।`);
+      hints.push(`   সমাধান: API keys ও URLs ⚙️ Settings-এ ঠিকমতো দেওয়া আছে কিনা চেক করুন।`);
+    } else if (s.includes('authenticationerror') || s.includes('invalid token') || s.includes('unauthorized')) {
+      hints.push(`💡 Authentication Error — API key বা token ভুল।`);
+      hints.push(`   সমাধান: ⚙️ Settings-এ সঠিক token/key দিন।`);
+    } else if (s.includes('conflict') && s.includes('getupdates')) {
+      hints.push(`💡 Telegram Conflict — একই bot token দিয়ে অন্য জায়গায় bot চলছে।`);
+      hints.push(`   সমাধান: অন্য সব instance বন্ধ করুন, শুধু এখানে চালান।`);
+    } else if (s.includes('permissionerror') || s.includes('permission denied')) {
+      hints.push(`💡 Permission Error — ফাইল access করতে পারছে না।`);
+    } else if (s.includes('memoryerror') || s.includes('killed') || exitCode === 137) {
+      hints.push(`💡 Memory Error — বট অনেক বেশি RAM ব্যবহার করছে।`);
+    } else if (exitCode === 1 && !s.includes('error')) {
+      hints.push(`💡 বট নিজে থেকে exit করেছে (code 1)। লগের উপরের দিকে error খুঁজুন।`);
+    }
+  } else if (language === 'node') {
+    if (s.includes('cannot find module')) {
+      const m = stderr.match(/Cannot find module '([^']+)'/i);
+      const pkg = m ? m[1] : 'unknown';
+      hints.push(`💡 Missing module: "${pkg}"`);
+      hints.push(`   সমাধান: package.json-এ "${pkg}" যোগ করুন।`);
+    } else if (s.includes('syntaxerror')) {
+      hints.push(`💡 JavaScript Syntax Error — 📝 কোড এডিটরে গিয়ে ঠিক করুন।`);
+    }
+  }
+
+  return hints.length ? hints : null;
+}
+
 // Windows-safe process tree kill
 function killProcess(proc) {
   if (!proc) return;
@@ -127,6 +221,20 @@ function start(bot, isAutoRestart = false) {
       : `✕ ${lang.label} runtime এই সার্ভারে নেই।`;
     emit(bot.id, 'system', msg);
     return false;
+  }
+
+  // ---------- Pre-flight: syntax check (Python / Node) ----------
+  try {
+    const syntaxResult = checkSyntax(bot, workdir, lang);
+    if (syntaxResult.error) {
+      emit(bot.id, 'stderr', `✕ Syntax Error — বট চালু হয়নি:`);
+      syntaxResult.lines.forEach(l => emit(bot.id, 'stderr', l));
+      emit(bot.id, 'system', `💡 কোড এডিটরে গিয়ে error ঠিক করুন, তারপর আবার চালু করুন।`);
+      emitStatusUpdate(bot.id);
+      return false;
+    }
+  } catch (_) {
+    // syntax check fail হলেও bot চালু করতে দাও
   }
 
   // ---------- Ensure dependencies are installed ----------
@@ -371,7 +479,6 @@ function start(bot, isAutoRestart = false) {
     const cur = running.get(bot.id);
     const wasManualStop = cur && cur.stopping;
 
-    // running map থেকে সরিয়ে দাও
     running.delete(bot.id);
 
     let msg;
@@ -383,14 +490,21 @@ function start(bot, isAutoRestart = false) {
       msg = `■ প্রসেস সফলভাবে শেষ হয়েছে (code 0)`;
     } else {
       msg = `■ প্রসেস এরর দিয়ে বন্ধ হয়েছে (code ${code}).`;
-      if (bot.language === 'python' && (code === 127 || code === 1)) {
-        const hasReq = fs.existsSync(path.join(workdir, 'requirements.txt'));
-        msg += hasReq
-          ? ' সম্ভবত dependency missing বা স্ক্রিপ্টে error। stderr লগ দেখুন।'
-          : ' সম্ভবত syntax error বা missing module।';
-      }
     }
     emit(bot.id, wasManualStop ? 'system' : (code === 0 ? 'system' : 'stderr'), msg);
+
+    // Smart diagnosis — helpful hints দেখাও
+    if (!wasManualStop && code !== 0 && code !== null) {
+      const recentLogs = store.getLogs(bot.id, 0, 500);
+      const stderrText = recentLogs
+        .filter(l => l.stream === 'stderr')
+        .map(l => l.text).join('\n');
+      const hints = diagnoseError(code, signal, bot.language, workdir, stderrText);
+      if (hints) {
+        hints.forEach(h => emit(bot.id, 'system', h));
+      }
+    }
+
     emitStatusUpdate(bot.id);
 
     // Optional auto-restart — manual stop হলে restart করব না
@@ -402,7 +516,6 @@ function start(bot, isAutoRestart = false) {
           const fresh = store.getBot(bot.id);
           if (fresh) {
             const newRec = running.get(bot.id);
-            // শুধু যদি এখনো বন্ধ থাকে তাহলে restart করো
             if (!newRec) {
               start(fresh, true);
               const r = running.get(bot.id);
